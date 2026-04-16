@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Licenses</h1>
+    <p>Assign and manage software licenses for users.</p>
+  </div>
+</div>
+
+<div class="card" style="max-width: 560px;">
+  <h2>Assign New License</h2>
+  <form method="post" action="/licenses/assign">
+    <div class="form-group">
+      <label for="user_id">User</label>
+      <select id="user_id" name="user_id" required>
+        <option value="">— Select a user —</option>
+        {% for user in users %}
+        <option value="{{ user.id }}">{{ user.name }} ({{ user.email }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="software">Software</label>
+      <select id="software" name="software" required>
+        <option value="Microsoft 365">Microsoft 365</option>
+        <option value="Slack">Slack</option>
+        <option value="Zoom">Zoom</option>
+        <option value="GitHub">GitHub</option>
+        <option value="Jira">Jira</option>
+        <option value="Figma">Figma</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="plan">Plan</label>
+      <select id="plan" name="plan" required>
+        <option value="Standard">Standard</option>
+        <option value="Pro">Pro</option>
+        <option value="Business">Business</option>
+        <option value="Enterprise">Enterprise</option>
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Assign License</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Current License Assignments</h2>
+  {% if licenses %}
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Email</th>
+        <th>Software</th>
+        <th>Plan</th>
+        <th>Assigned Date</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lic, user in licenses %}
+      <tr>
+        <td><strong>{{ user.name }}</strong></td>
+        <td>{{ user.email }}</td>
+        <td>{{ lic.software }}</td>
+        <td><span class="badge">{{ lic.plan }}</span></td>
+        <td style="color:#666; font-size:12px;">{{ lic.assigned_date.strftime('%Y-%m-%d') }}</td>
+        <td>
+          <form method="post" action="/licenses/{{ lic.id }}/revoke">
+            <button type="submit" class="btn btn-sm btn-danger" id="revoke-license-{{ lic.id }}">Revoke</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <p>No licenses assigned yet.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

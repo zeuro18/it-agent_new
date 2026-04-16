@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>Overview of users, licenses, and recent activity.</p>
+  </div>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-num">{{ total_users }}</div>
+    <div class="stat-label">Total Users</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ active_users }}</div>
+    <div class="stat-label">Active Users</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">{{ total_licenses }}</div>
+    <div class="stat-label">Licenses Assigned</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Quick Actions</h2>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="/users/add" class="btn btn-primary">Add User</a>
+    <a href="/reset-password" class="btn btn-outline">Reset Password</a>
+    <a href="/licenses" class="btn btn-outline">Manage Licenses</a>
+    <a href="/audit" class="btn btn-outline">View Audit Log</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent Activity</h2>
+  {% if recent_logs %}
+    <table>
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Performed By</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in recent_logs %}
+        <tr>
+          <td>{{ log.action }}</td>
+          <td><span class="badge">{{ log.performed_by }}</span></td>
+          <td style="color:#666; font-size:12px;">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">
+      <p>No activity yet.</p>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

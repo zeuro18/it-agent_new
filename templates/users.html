@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Users</h1>
+    <p>Manage all company user accounts.</p>
+  </div>
+  <a href="/users/add" class="btn btn-primary">Add User</a>
+</div>
+
+<div class="card">
+  <form class="search-bar" method="get" action="/users">
+    <input type="text" name="search" placeholder="Search by name or email..." value="{{ search }}">
+    <button class="btn btn-outline" type="submit">Search</button>
+    {% if search %}<a href="/users" class="btn btn-outline">Clear</a>{% endif %}
+  </form>
+
+  {% if users %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Department</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td><strong>{{ user.name }}</strong></td>
+        <td>{{ user.email }}</td>
+        <td>{{ user.department }}</td>
+        <td><span class="badge">{{ user.role }}</span></td>
+        <td>
+          <span class="badge {% if user.status == 'active' %}badge-active{% else %}badge-inactive{% endif %}">
+            {{ user.status }}
+          </span>
+        </td>
+        <td>
+          <div style="display:flex; gap:6px;">
+            <a href="/users/{{ user.id }}/edit" class="btn btn-sm btn-outline">Edit</a>
+            <form method="post" action="/users/{{ user.id }}/delete" style="display:inline;">
+              <button type="submit" class="btn btn-sm btn-danger" id="delete-user-{{ user.id }}">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <p>No users found{% if search %} for "{{ search }}"{% endif %}.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

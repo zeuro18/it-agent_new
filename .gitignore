@@ -1,0 +1,8 @@
+venv/
+**/.env
+.env
+*.db
+__pycache__/
+*.pyc
+cd
+del

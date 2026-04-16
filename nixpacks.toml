@@ -1,0 +1,22 @@
+[phases.setup]
+nixPkgs = [
+  "python311",
+  "firefox",
+  "xvfb",
+  "libgbm",
+  "glib",
+  "nss",
+  "nspr",
+  "atk",
+  "cups",
+  "libdrm",
+  "gtk3",
+  "pango",
+]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "pip install -r agent/requirements.txt",
+  "playwright install firefox",
+]

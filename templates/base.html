@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IT Admin Panel</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #fff;
+      color: #111;
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* NAV */
+    nav {
+      background: #111;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      height: 48px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .nav-brand {
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      margin-right: 32px;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+
+    nav a {
+      color: #888;
+      text-decoration: none;
+      padding: 0 14px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      font-size: 13px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      transition: color 0.1s;
+    }
+
+    nav a:hover,
+    nav a.active {
+      color: #fff;
+      border-bottom-color: #fff;
+    }
+
+    /* LAYOUT */
+    .container {
+      max-width: 960px;
+      margin: 32px auto;
+      padding: 0 24px;
+    }
+
+    /* PAGE HEADER */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .page-header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #111;
+    }
+
+    .page-header p {
+      color: #666;
+      font-size: 13px;
+      margin-top: 2px;
+    }
+
+    /* CARDS */
+    .card {
+      border: 1px solid #e0e0e0;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #111;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* STAT CARDS */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      border: 1px solid #e0e0e0;
+      padding: 20px 24px;
+    }
+
+    .stat-card .stat-num {
+      font-size: 32px;
+      font-weight: 700;
+      color: #111;
+    }
+
+    .stat-card .stat-label {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* TABLE */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid #111;
+    }
+
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #eee;
+      vertical-align: middle;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: #fafafa;
+    }
+
+    /* BADGES */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      border: 1px solid #ccc;
+      color: #333;
+    }
+
+    .badge-active {
+      border-color: #111;
+      color: #111;
+    }
+
+    .badge-inactive {
+      border-color: #ccc;
+      color: #999;
+    }
+
+    /* BUTTONS */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid #111;
+      cursor: pointer;
+      text-decoration: none;
+      background: #fff;
+      color: #111;
+      transition: background 0.1s, color 0.1s;
+    }
+
+    .btn:hover {
+      background: #111;
+      color: #fff;
+    }
+
+    .btn-primary {
+      background: #111;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #333;
+    }
+
+    .btn-danger {
+      border-color: #111;
+      color: #111;
+    }
+
+    .btn-danger:hover {
+      background: #111;
+      color: #fff;
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #ccc;
+      color: #333;
+    }
+
+    .btn-outline:hover {
+      border-color: #111;
+      background: #111;
+      color: #fff;
+    }
+
+    /* FORMS */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      color: #111;
+      background: #fff;
+      outline: none;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: #111;
+    }
+
+    /* ALERTS */
+    .alert {
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid #111;
+    }
+
+    .alert-success {
+      background: #f5f5f5;
+      color: #111;
+    }
+
+    .alert-error {
+      background: #fff;
+      color: #111;
+      border-style: dashed;
+    }
+
+    /* SEARCH */
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .search-bar input {
+      flex: 1;
+      max-width: 320px;
+    }
+
+    /* EMPTY STATE */
+    .empty {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+    }
+
+    .empty p {
+      margin-top: 4px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <nav>
+    <a href="/" class="nav-brand">IT Admin</a>
+    <a href="/" {% if request.endpoint=='dashboard' %}class="active" {% endif %}>Dashboard</a>
+    <a href="/users" {% if request.endpoint in ['users','add_user','edit_user'] %}class="active" {% endif %}>Users</a>
+    <a href="/reset-password" {% if request.endpoint=='reset_password' %}class="active" {% endif %}>Reset Password</a>
+    <a href="/licenses" {% if request.endpoint=='licenses' %}class="active" {% endif %}>Licenses</a>
+    <a href="/audit" {% if request.endpoint=='audit' %}class="active" {% endif %}>Audit Log</a>
+  </nav>
+
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+
+</body>
+
+</html>

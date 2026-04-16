@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Audit Log</h1>
+    <p>Complete history of all actions performed!</p>
+  </div>
+</div>
+
+<div class="card">
+  {% if logs %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Action</th>
+        <th>Performed By</th>
+        <th>Timestamp</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td style="color:#999; font-size:12px;">{{ log.id }}</td>
+        <td>{{ log.action }}</td>
+        <td><span class="badge">{{ log.performed_by }}</span></td>
+        <td style="color:#666; font-size:12px; white-space:nowrap;">
+          {{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <p>No audit logs yet. Perform an action to see it here!</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
