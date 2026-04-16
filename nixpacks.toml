@@ -16,7 +16,9 @@ nixPkgs = [
 
 [phases.install]
 cmds = [
+  "python -m venv /opt/venv",
+  ". /opt/venv/bin/activate",
   "pip install -r requirements.txt",
   "pip install -r agent/requirements.txt",
-  "playwright install firefox",
+  "playwright install firefox"
 ]
