@@ -2,5 +2,3 @@ browser-use==0.1.40
 playwright==1.49.0
 langchain-groq==0.2.4
 python-dotenv==1.0.1
-fastapi==0.115.0
-uvicorn==0.30.6

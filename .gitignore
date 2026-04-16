@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 cd
 del
+venv_old/
+agent_venv_old/
+instance/
