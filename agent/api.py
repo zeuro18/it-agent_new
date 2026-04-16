@@ -5,7 +5,9 @@ Wraps the agent in a FastAPI HTTP server.
 POST /run-task  →  runs the agent with the given task string
 GET  /health    →  health check
 """
-
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 from fastapi import FastAPI
 from pydantic import BaseModel
 from tasks import build_task_prompt
