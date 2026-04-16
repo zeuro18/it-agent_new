@@ -52,4 +52,5 @@ async def run_task(task_prompt: str) -> str:
 
 
 def run(task_prompt: str) -> str:
+    import asyncio
     return asyncio.run(run_task(task_prompt))
