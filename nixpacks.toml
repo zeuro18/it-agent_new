@@ -1,7 +1,6 @@
 [phases.setup]
 nixPkgs = [
   "python311",
-  "firefox",
   "xvfb",
   "libgbm",
   "glib",
@@ -12,9 +11,12 @@ nixPkgs = [
   "libdrm",
   "gtk3",
   "pango",
+  "cairo",
+  "alsa-lib",
+  "mesa",
+  "expat",
+  "libxkbcommon"
 ]
 
-[phases.install]
-cmds = [
-  "python -m venv /opt/venv && . /opt/venv/bin/activate && pip install -r requirements.txt && pip install -r agent/requirements.txt && playwright install firefox"
-]
+[phases.postInstall]
+cmds = ["python -m playwright install chromium"]
