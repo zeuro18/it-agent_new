@@ -1,5 +1,5 @@
 
-## 🏗️ Architecture
+## Architecture
 
 The project is structurally divided into two interacting components:
 
@@ -10,12 +10,12 @@ The project is structurally divided into two interacting components:
    A Python Command-Line Interface (CLI) that leverages the `browser-use` library and LangChain. 
    - A user provides a request in plain English.
    - The `tasks.py` module parses the request and expands it into a deterministic, step-by-step instruction prompt (including the target URLs and exact goals).
-   - The Agent initiates a Playwright-controlled Chromium browser instance and enters a loop: it captures a screenshot of the web page, sends it to the vision language model (LLM), and receives the next browser action (click, type, navigate). 
-   - It continually executes actions on the Flask admin panel until the visual state confirms the IT task has succeeded.
+   - The Agent initiates a Playwright-controlled Chromium browser instance and enters a text-based DOM processing loop: it parses the HTML DOM tree as text elements, sends it to the language model (LLM), and receives the next browser action (click, type, navigate) via JSON function calling. 
+   - It continually executes actions on the Flask admin panel until the system state confirms the IT task has succeeded.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Web Application / Backend
 - **Framework:** Flask (v3.0.3)
@@ -25,10 +25,10 @@ The project is structurally divided into two interacting components:
 - **Styling/Markup:** Vanilla HTML & CSS
 
 ### AI Agent / Browser Automation
-- **Framework:** `browser-use` (An AI framework orchestrating Playwright)
+- **Framework:** `browser-use` (An AI framework orchestrating Playwright in text-only mode)
 - **Browser Automation:** Playwright for Python
 - **LLM/Orchestration:** LangChain (`langchain_groq`)
-- **Language Model:** Groq API running `meta-llama/llama-4-scout-17b-16e-instruct`
+- **Language Model:** Groq API running `llama-3.3-70b-versatile`
 
 ---
 
@@ -42,3 +42,4 @@ The project is structurally divided into two interacting components:
 - **Execution Modes:**
   - **Interactive CLI:** Type `python main.py` to enter an interactive conversation terminal with the AI agent.
   - **Single Task Execution:** Provide explicit commands upon initialization (e.g., `python main.py "delete user x@company.com"`).
+
