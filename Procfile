@@ -1,2 +1,2 @@
-web: gunicorn app:app --bind 0.0.0.0:$PORT
-agent: python agent/api.py
+web: python admin_panel/app.py
+agent: cd agent && uvicorn api:app --host 0.0.0.0 --port 8000
