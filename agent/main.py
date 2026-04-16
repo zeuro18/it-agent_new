@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 load_dotenv()
 
 from tasks import build_task_prompt
-from agent import run
+from browser_agent import run
 
 
 BANNER = """

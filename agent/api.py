@@ -8,10 +8,11 @@ GET  /health    →  health check
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 from tasks import build_task_prompt
-from agent import run_task
+from browser_agent import run_task
 import uvicorn
 
 app = FastAPI(title="IT Agent API")
@@ -30,8 +31,6 @@ def health():
 @app.post("/run-task", response_model=TaskResponse)
 async def run_task_endpoint(request: TaskRequest):
     task_prompt = build_task_prompt(request.task)
-    # Call run_task directly with await — no asyncio.run() needed
-    # FastAPI already manages the event loop
     result = await run_task(task_prompt)
     return TaskResponse(result=result, task_prompt=task_prompt)
 
