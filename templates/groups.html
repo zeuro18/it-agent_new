@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Role-Based Access Control</h1>
+    <p>Manage user groups and access levels.</p>
+  </div>
+  <button class="btn btn-primary" onclick="document.getElementById('addGroupModal').style.display='block'">+ New Group</button>
+</div>
+
+<div class="card">
+  <h2>Groups</h2>
+  {% if groups %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Group Name</th>
+        <th>Description</th>
+        <th>Members</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for group in groups %}
+      <tr>
+        <td>#{{ group.id }}</td>
+        <td><strong>{{ group.name }}</strong></td>
+        <td>{{ group.description }}</td>
+        <td>
+          {% for user in group.users %}
+          <span class="badge badge-active" style="margin-right: 4px; margin-bottom: 4px;">{{ user.name }}</span>
+          {% endfor %}
+        </td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="openAssignModal({{ group.id }}, '{{ group.name }}')">Manage Users</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <p>No groups found.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Add Group Modal -->
+<div id="addGroupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999;">
+  <div style="background:#fff; width:400px; margin:100px auto; padding:24px; border:1px solid #111; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+    <h2>Create New Group</h2>
+    <form action="{{ url_for('add_group') }}" method="POST" style="margin-top:16px;">
+      <div class="form-group">
+        <label>Group Name</label>
+        <input type="text" name="name" required />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" />
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:24px;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('addGroupModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Manage Users Modal -->
+<div id="manageUsersModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999;">
+  <div style="background:#fff; width:400px; margin:100px auto; padding:24px; border:1px solid #111; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+    <h2>Manage Users: <span id="modalGroupName"></span></h2>
+    
+    <div style="margin-top:16px;">
+      <h3 style="font-size:12px; text-transform:uppercase; margin-bottom:8px; color:#333;">Add User to Group</h3>
+      <form id="assignForm" method="POST" style="display:flex; gap:8px;">
+        <select name="user_id" required style="flex:1;">
+          <option value="">Select User...</option>
+          {% for u in users %}
+          <option value="{{ u.id }}">{{ u.email }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Add</button>
+      </form>
+    </div>
+
+    <div style="margin-top:24px;">
+      <h3 style="font-size:12px; text-transform:uppercase; margin-bottom:8px; color:#333;">Remove User from Group</h3>
+      <form id="removeForm" method="POST" style="display:flex; gap:8px;">
+        <select name="user_id" required style="flex:1;">
+          <option value="">Select User...</option>
+          {% for u in users %}
+          <option value="{{ u.id }}">{{ u.email }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-danger">Remove</button>
+      </form>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; margin-top:32px;">
+      <button type="button" class="btn btn-outline" onclick="document.getElementById('manageUsersModal').style.display='none'">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openAssignModal(groupId, groupName) {
+  document.getElementById('modalGroupName').innerText = groupName;
+  document.getElementById('assignForm').action = "/groups/" + groupId + "/assign";
+  document.getElementById('removeForm').action = "/groups/" + groupId + "/remove";
+  document.getElementById('manageUsersModal').style.display = 'block';
+}
+</script>
+
+{% endblock %}
