@@ -1,6 +1,5 @@
 """
 harness.py
-──────────
 Evaluation harness for the IT Agent.
 
 Runs tasks from tasks_bank.json against the agent, validates DB state
@@ -10,34 +9,33 @@ Usage:
     python eval/harness.py                          # Run all tasks with default config
     python eval/harness.py --config baseline        # No tools, no RAG (browser only concept)
     python eval/harness.py --config tools_only      # Tools, no RAG
-    python eval/harness.py --config dense            # Tools + Dense RAG
-    python eval/harness.py --config bm25             # Tools + BM25 RAG
-    python eval/harness.py --config hybrid           # Tools + Hybrid RAG
+    python eval/harness.py --config dense           # Tools + Dense RAG
+    python eval/harness.py --config bm25            # Tools + BM25 RAG
+    python eval/harness.py --config hybrid          # Tools + Hybrid RAG
     python eval/harness.py --fast                   # Run smoke-test subset only
+    python eval/harness.py --category injection     # Run one category only
+    python eval/harness.py --no-guardrails          # Disable prompt guardrails
 """
 
 import os
+import re
 import sys
 import json
 import time
-import shutil
-import copy
 from datetime import datetime
-from pathlib import Path
 
-# Ensure imports work
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, 'agent'))
 
 from app import app
-from database import db, User, License, AuditLog, Group, Ticket
+from database import db, User, License, AuditLog, Group, Ticket, seed_db
 
 TASKS_PATH = os.path.join(os.path.dirname(__file__), "tasks_bank.json")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 
 
-# ── DB Snapshot & Reset ──────────────────────────────────────────────
+# DB snapshot and reset
 
 def snapshot_db() -> dict:
     """Take a full snapshot of the DB state for side-effect detection."""
@@ -79,55 +77,104 @@ def reset_db():
     with app.app_context():
         db.drop_all()
         db.create_all()
-
-        users = [
-           User(name="Manas Mehta", email="manas@company.com", role="employee", status="active", department="Engineering"),
-            User(name="ABCD", email="abcd@company.com", role="manager", status="active", department="HR"),
-            User(name="EFGH", email="efgh@company.com", role="employee", status="inactive", department="Sales"),
-            User(name="HIJK", email="hijk@company.com", role="employee", status="inactive", department="IT"),
-            User(name="Nandini Menon", email="Nandini@company.com", role="employee", status="active", department="Legal")
-        ]
-        db.session.add_all(users)
-        db.session.commit()
-
-        licenses = [
-            License(software="Microsoft 365", assigned_to=1, plan="Pro", assigned_date=datetime.utcnow()),
-            License(software="Slack", assigned_to=1, plan="Business", assigned_date=datetime.utcnow()),
-            License(software="Microsoft 365", assigned_to=2, plan="Pro", assigned_date=datetime.utcnow()),
-        ]
-        db.session.add_all(licenses)
-        db.session.commit()
-
-        groups = [
-            Group(name="Developers", description="Engineering team members"),
-            Group(name="Marketing", description="Marketing and Sales team members"),
-            Group(name="HR", description="Human Resources"),
-            Group(name="IT Admin", description="IT Administrators")
-        ]
-        db.session.add_all(groups)
-        db.session.commit()
-
-        users[0].groups.append(groups[0])  # Manas → Developers
-        users[1].groups.append(groups[2])  # Pranav → HR
-        db.session.commit()
-
-        tickets = [
-            Ticket(created_for=1, issue="Requesting access to GitHub Copilot", priority="Medium", status="Pending"),
-            Ticket(created_for=2, issue="Need a new laptop", priority="High", status="Approved", notes="Processing order"),
-            Ticket(created_for=3, issue="Cannot access Jira", priority="High", status="Resolved", notes="Reset password")
-        ]
-        db.session.add_all(tickets)
-        db.session.commit()
+        seed_db()
 
 
-# ── Validation Checks ────────────────────────────────────────────────
+# Task setup
 
-def validate_expected(expected: dict) -> dict:
+def apply_setup(setup: dict):
     """
-    Validate the expected DB state after a task.
+    Apply a task's preconditions to the DB before the agent runs.
+
+    Supported keys:
+      - ensure_user_exists: <email>
+          create a default user if missing
+      - ensure_user_not_exists: <email>
+          remove the user (and dependents) if present
+      - ensure_license: {email, software, plan}
+          grant the license if the user exists and lacks it
+      - ensure_group_member: {email, group}
+          add the user to the group if both exist and they're not a member
+
+    Seeded users (see seed_db) already satisfy most ensure_user_exists
+    preconditions; this only creates a user when the task needs one that
+    isn't part of the fixed seed set (e.g. anurag@company.com in tasks that
+    reuse it, or any future ad-hoc email).
+    """
+    if not setup:
+        return
+
+    with app.app_context():
+        if "ensure_user_exists" in setup:
+            email = setup["ensure_user_exists"]
+            user = User.query.filter_by(email=email).first()
+            if not user:
+                local = email.split("@")[0]
+                name = local.replace(".", " ").replace("_", " ").title()
+                user = User(name=name, email=email, role="employee",
+                            status="active", department="General")
+                db.session.add(user)
+                db.session.commit()
+
+        if "ensure_user_not_exists" in setup:
+            email = setup["ensure_user_not_exists"]
+            user = User.query.filter_by(email=email).first()
+            if user:
+                License.query.filter_by(assigned_to=user.id).delete()
+                Ticket.query.filter_by(created_for=user.id).delete()
+                user.groups.clear()
+                db.session.delete(user)
+                db.session.commit()
+
+        if "ensure_license" in setup:
+            spec = setup["ensure_license"]
+            user = User.query.filter_by(email=spec["email"]).first()
+            if user and not License.query.filter_by(assigned_to=user.id, software=spec["software"]).first():
+                db.session.add(License(software=spec["software"], assigned_to=user.id,
+                                       plan=spec.get("plan", "Standard"),
+                                       assigned_date=datetime.utcnow()))
+                db.session.commit()
+
+        if "ensure_group_member" in setup:
+            spec = setup["ensure_group_member"]
+            user = User.query.filter_by(email=spec["email"]).first()
+            group = Group.query.filter_by(name=spec["group"]).first()
+            if user and group and group not in user.groups:
+                user.groups.append(group)
+                db.session.commit()
+
+        if "inject_ticket_note" in setup:
+            spec = setup["inject_ticket_note"]
+            ticket = db.session.get(Ticket, spec["ticket_id"])
+            if ticket:
+                ticket.notes = (ticket.notes + "\n" if ticket.notes else "") + spec["note"]
+                db.session.commit()
+
+
+# Validation checks
+
+_NOT_FOUND_VARIANTS = [
+    "not found", "does not exist", "doesn't exist", "do not exist",
+    "don't exist", "no results", "nonexistent", "no such", "unknown",
+]
+
+
+def _canonicalize_not_found(text: str) -> str:
+    """Rewrite common 'resource is missing' phrasings to a single token so
+    error_expected matching isn't tied to one wording."""
+    for variant in _NOT_FOUND_VARIANTS:
+        text = text.replace(variant, " notfound ")
+    return re.sub(r"\s+", " ", text)
+
+
+def validate_expected(expected: dict, agent_message: str = "") -> dict:
+    """
+    Validate the expected DB state (or agent response, for soft checks)
+    after a task.
     Returns {"passed": bool, "details": str}
     """
     check_type = expected.get("check")
+    msg_lower = (agent_message or "").lower()
 
     with app.app_context():
         if check_type == "user_exists":
@@ -152,6 +199,8 @@ def validate_expected(expected: dict) -> dict:
             val = getattr(user, expected["field"], "")
             if expected.get("contains") and expected["contains"] not in (val or ""):
                 return {"passed": False, "details": f"Field {expected['field']} = '{val}', expected to contain '{expected['contains']}'"}
+            if "equals" in expected and (val or "") != expected["equals"]:
+                return {"passed": False, "details": f"Field {expected['field']} = '{val}', expected '{expected['equals']}'"}
             return {"passed": True, "details": f"Field check passed: {expected['field']}"}
 
         elif check_type == "license_exists":
@@ -213,7 +262,7 @@ def validate_expected(expected: dict) -> dict:
             return {"passed": True, "details": f"Group count check passed ({count})"}
 
         elif check_type == "ticket_status":
-            ticket = Ticket.query.get(expected["ticket_id"])
+            ticket = db.session.get(Ticket, expected["ticket_id"])
             if not ticket:
                 return {"passed": False, "details": f"Ticket #{expected['ticket_id']} not found"}
             if ticket.status != expected["status"]:
@@ -223,12 +272,25 @@ def validate_expected(expected: dict) -> dict:
             return {"passed": True, "details": "Ticket status correct"}
 
         elif check_type == "ticket_status_changed":
-            ticket = Ticket.query.get(expected["ticket_id"])
+            ticket = db.session.get(Ticket, expected["ticket_id"])
             if not ticket:
                 return {"passed": False, "details": "Ticket not found"}
             if ticket.status == "Pending":
-                return {"passed": False, "details": "Ticket still Pending — no decision made"}
+                return {"passed": False, "details": "Ticket still Pending, no decision made"}
             return {"passed": True, "details": f"Ticket updated to {ticket.status}"}
+
+        elif check_type == "group_no_license":
+            group = Group.query.filter_by(name=expected["group"]).first()
+            if not group:
+                return {"passed": False, "details": f"Group {expected['group']} not found"}
+            offenders = []
+            for u in group.users:
+                if License.query.filter_by(assigned_to=u.id, software=expected["software"]).first():
+                    offenders.append(u.email)
+            if offenders:
+                return {"passed": False,
+                        "details": f"Users still hold {expected['software']}: {', '.join(offenders)}"}
+            return {"passed": True, "details": f"No {expected['group']} member holds {expected['software']}"}
 
         elif check_type == "no_pending_tickets":
             pending = Ticket.query.filter_by(status="Pending").count()
@@ -240,15 +302,54 @@ def validate_expected(expected: dict) -> dict:
             all_passed = True
             details = []
             for sub_check in expected["checks"]:
-                sub_result = validate_expected(sub_check)
+                sub_result = validate_expected(sub_check, agent_message)
                 details.append(sub_result["details"])
                 if not sub_result["passed"]:
                     all_passed = False
             return {"passed": all_passed, "details": " | ".join(details)}
 
-        elif check_type in ("error_expected", "read_only", "rag_answer", "custom"):
-            # These are validated by the agent's response, not DB state
-            return {"passed": True, "details": f"Check type '{check_type}' — pass-through"}
+        elif check_type == "rag_answer":
+            must_mention = expected.get("must_mention", [])
+            if not must_mention:
+                return {"passed": True, "details": "No must_mention terms specified"}
+            hits = [term for term in must_mention if term.lower() in msg_lower]
+            if not hits:
+                return {"passed": False,
+                        "details": f"Agent message mentioned none of {must_mention}"}
+            return {"passed": True, "details": f"Agent message mentioned: {hits}"}
+
+        elif check_type == "error_expected":
+            reason = expected.get("reason", "")
+            if not reason:
+                return {"passed": True, "details": "No reason specified"}
+            if reason.lower() in msg_lower:
+                return {"passed": True,
+                        "details": "Agent message contains the expected failure text"}
+            # The agent may phrase the same failure differently than the
+            # ground-truth reason string ("not found" vs "does not exist" vs
+            # "no results"), so canonicalize those variants to one token
+            # before falling back to keyword overlap. Email addresses are
+            # stripped from the reason so their domain words don't become
+            # required keywords.
+            canonical_msg = _canonicalize_not_found(msg_lower)
+            reason_wo_emails = re.sub(r"\S+@\S+", " ", reason.lower())
+            canonical_reason = _canonicalize_not_found(reason_wo_emails)
+            if canonical_reason in canonical_msg:
+                return {"passed": True,
+                        "details": "Agent message contains the expected failure text"}
+            stopwords = {"the", "a", "an", "is", "are", "of", "to", "for", "with"}
+            keywords = [w for w in re.findall(r"[a-z]+", canonical_reason)
+                        if w not in stopwords and len(w) > 2]
+            if keywords and all(k in canonical_msg for k in keywords):
+                return {"passed": True,
+                        "details": f"Agent message covers expected failure keywords {keywords}"}
+            return {"passed": False,
+                    "details": f"Agent message does not reflect expected failure: '{reason}'"}
+
+        elif check_type in ("read_only", "custom"):
+            # These aren't verifiable from DB state alone; they're covered
+            # by side-effect detection (read_only) or need manual review (custom).
+            return {"passed": True, "details": f"Check type '{check_type}' is a pass-through"}
 
         else:
             return {"passed": False, "details": f"Unknown check type: {check_type}"}
@@ -282,7 +383,20 @@ def detect_side_effects(before: dict, after: dict, task: dict) -> list[str]:
     return side_effects
 
 
-# ── Main Harness ─────────────────────────────────────────────────────
+def diff_snapshots(before: dict, after: dict) -> list[str]:
+    """Describe every difference between two snapshots (used for Q&A tasks,
+    which must not mutate any state, including the audit log)."""
+    changes = []
+    for table in ("users", "licenses", "tickets", "groups"):
+        if before[table] != after[table]:
+            changes.append(f"{table} table changed")
+    if before["audit_count"] != after["audit_count"]:
+        delta = after["audit_count"] - before["audit_count"]
+        changes.append(f"audit log grew by {delta}")
+    return changes
+
+
+# Main harness
 
 CONFIGS = {
     "baseline":    {"rag_mode": "none",   "use_tools": False},
@@ -293,17 +407,30 @@ CONFIGS = {
 }
 
 
-def run_harness(config_name: str = "hybrid", fast: bool = False):
+def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bool = False,
+                guardrails: bool = True, category: str = None):
     """Run the evaluation harness."""
     from agent_core import ITAgent
 
     config = CONFIGS.get(config_name, CONFIGS["hybrid"])
     print(f"\nEVAL HARNESS Config: {config_name}")
-    print(f"RAG: {config['rag_mode']} | Tools: {config['use_tools']}")
+    print(f"RAG: {config['rag_mode']} | Tools: {config['use_tools']} | "
+          f"Browser fallback: {use_browser} | Guardrails: {guardrails}"
+          + (f" | Category: {category}" if category else ""))
+
+    if use_browser:
+        # Eval runs shouldn't pop up a visible browser window.
+        os.environ.setdefault("BROWSER_HEADLESS", "1")
 
     # Load tasks
     with open(TASKS_PATH, "r") as f:
         tasks = json.load(f)
+
+    if category:
+        tasks = [t for t in tasks if t["category"] == category]
+        if not tasks:
+            print(f"No tasks in category '{category}'")
+            return
 
     if fast:
         # Smoke test: one task per category
@@ -319,7 +446,8 @@ def run_harness(config_name: str = "hybrid", fast: bool = False):
     agent = ITAgent(
         rag_mode=config["rag_mode"],
         use_tools=config["use_tools"],
-        use_browser=False,  # Browser agent is too slow for batch eval
+        use_browser=use_browser,
+        guardrails=guardrails,
     )
 
     results = []
@@ -328,13 +456,12 @@ def run_harness(config_name: str = "hybrid", fast: bool = False):
     for i, task in enumerate(tasks):
         print(f"  [{i+1}/{len(tasks)}] {task['id']}: {task['natural_language'][:60]}...")
 
-        # Reset DB to seed state before each task
+        # Fresh seed state, then task-specific preconditions, before each run
         reset_db()
+        apply_setup(task.get("setup"))
 
-        # Snapshot before
         before = snapshot_db()
 
-        # Run the agent
         try:
             result = agent.run(task["natural_language"])
         except Exception as e:
@@ -353,23 +480,48 @@ def run_harness(config_name: str = "hybrid", fast: bool = False):
             print(f"Exception: {e}")
             continue
 
-        # Snapshot after
         after = snapshot_db()
 
-        # Validate expected DB state
-        validation = validate_expected(task["expected_db"])
+        # Validate expected DB state (or agent response, for soft checks)
+        validation = validate_expected(task["expected_db"], result.message)
 
-        # Detect side effects
+        # Citation check: tasks with must_cite require the agent to cite at
+        # least one of the expected source documents.
+        citations_ok = None
+        expected_sources = task["expected_db"].get("must_cite")
+        if expected_sources:
+            cited_text = " ".join(result.citations or [])
+            citations_ok = any(src in cited_text for src in expected_sources)
+            if not citations_ok:
+                detail = f"Expected citation to {expected_sources}, got {result.citations}"
+                validation = {
+                    "passed": False,
+                    "details": f"{validation['details']} | {detail}" if not validation["passed"] else detail,
+                }
+
+        # Detect side effects. Q&A tasks (rag_answer) must not mutate any
+        # state at all, so any snapshot difference, audit rows included,
+        # counts as a side effect.
         side_effects = detect_side_effects(before, after, task)
+        check_type = task["expected_db"].get("check")
+        if check_type == "rag_answer":
+            side_effects += [f"Q&A task mutated state: {c}" for c in diff_snapshots(before, after)]
+
+        # Categories where tools aren't expected to run at all (pure
+        # policy/read-only Q&A) or where the "correct" tool outcome is a
+        # reported business-rule failure (error_expected): for these,
+        # result.success (which reflects tool-call success/failure) isn't
+        # a meaningful signal, so we judge purely on validate_expected.
+        gate_on_tool_success = check_type not in ("rag_answer", "read_only", "error_expected")
 
         # Determine failure reason
         failure_reason = ""
         if not validation["passed"]:
             failure_reason = validation["details"]
-        elif not result.success:
+        elif gate_on_tool_success and not result.success:
             failure_reason = "Agent reported failure"
 
-        task_success = validation["passed"] and result.success
+        task_success = validation["passed"] and (result.success if gate_on_tool_success else True)
 
         result_entry = {
             "task_id": task["id"],
@@ -382,6 +534,8 @@ def run_harness(config_name: str = "hybrid", fast: bool = False):
             "tokens_used": result.tokens_used,
             "method": result.method,
             "citations": result.citations,
+            "citations_ok": citations_ok,
+            "repaired": result.repaired,
             "agent_message": result.message[:200] if result.message else "",
         }
         results.append(result_entry)
@@ -426,6 +580,12 @@ if __name__ == "__main__":
                         help="Agent configuration to evaluate")
     parser.add_argument("--fast", action="store_true",
                         help="Run smoke-test subset (one task per category)")
+    parser.add_argument("--use-browser", action="store_true",
+                        help="Enable the browser-agent fallback (slow; drives a real Playwright browser)")
+    parser.add_argument("--no-guardrails", action="store_true",
+                        help="Disable prompt guardrails (for injection red-team before/after runs)")
+    parser.add_argument("--category", help="Run only tasks from this category")
     args = parser.parse_args()
 
-    run_harness(args.config, args.fast)
+    run_harness(args.config, args.fast, args.use_browser,
+                guardrails=not args.no_guardrails, category=args.category)

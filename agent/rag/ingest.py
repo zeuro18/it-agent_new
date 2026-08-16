@@ -10,7 +10,6 @@ import os
 import re
 import json
 import pickle
-from pathlib import Path
 
 from sentence_transformers import SentenceTransformer
 import chromadb
@@ -79,7 +78,7 @@ def ingest():
     Full ingestion pipeline:
     1. Read all .pdf and .docx files from docs/
     2. Chunk them
-    3. Embed with sentence-transformers → store in ChromaDB
+    3. Embed with sentence-transformers, store in ChromaDB
     4. Build BM25 index over the same chunks
     """
     print("[ingest] Loading documents from", DOCS_DIR)
@@ -134,7 +133,6 @@ def ingest():
     with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, indent=2)
 
-    #Dense embeddings via sentence-transformers → ChromaDB
     print(f"[ingest] Loading embedding model: {EMBED_MODEL}")
     model = SentenceTransformer(EMBED_MODEL)
 
@@ -155,7 +153,6 @@ def ingest():
     collection = client.create_collection("it_policies")
     collection.add(ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas)
 
-    # BM25 index 
     print("[ingest] Building BM25 index...")
     tokenized = [t.lower().split() for t in texts]
     bm25 = BM25Okapi(tokenized)

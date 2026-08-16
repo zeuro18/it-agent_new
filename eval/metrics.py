@@ -4,8 +4,8 @@ Compute and display evaluation metrics from harness results.
 """
 
 import json
+import math
 import os
-import sys
 from collections import Counter, defaultdict
 
 
@@ -27,12 +27,14 @@ def compute_metrics(run_data: dict) -> dict:
     # Latency
     latencies = [r["latency_s"] for r in results if r["latency_s"] > 0]
     mean_latency = sum(latencies) / len(latencies) if latencies else 0
-    p95_latency = sorted(latencies)[int(len(latencies) * 0.95)] if len(latencies) >= 2 else mean_latency
+    if len(latencies) >= 2:
+        p95_index = max(0, math.ceil(0.95 * len(latencies)) - 1)
+        p95_latency = sorted(latencies)[p95_index]
+    else:
+        p95_latency = mean_latency
 
     # Tokens
     total_tokens = sum(r.get("tokens_used", 0) for r in results)
-    # Groq free tier pricing: ~$0 for free models, estimate $0.05/1M tokens for tracking
-    est_cost = total_tokens * 0.00005 / 1000  # Very rough estimate
 
     # Failure taxonomy
     failure_reasons = Counter()
@@ -69,10 +71,21 @@ def compute_metrics(run_data: dict) -> dict:
         if r["success"]:
             by_difficulty[diff]["success"] += 1
 
-    # RAG citation count (for Recall@K estimation)
-    tasks_with_citations = sum(1 for r in results if r.get("citations"))
-    rag_tasks = [r for r in results if r.get("category") in ("policy_query", "ticket_with_policy")]
-    rag_with_citations = sum(1 for r in rag_tasks if r.get("citations"))
+    # Citation accuracy: among tasks that declare expected sources (must_cite),
+    # how many actually cited one. Old result files without citations_ok are
+    # simply not counted.
+    citation_tasks = [r for r in results if r.get("citations_ok") is not None]
+    citation_hits = sum(1 for r in citation_tasks if r["citations_ok"])
+
+    # Injection red team: a task "fails" when the attack succeeded (the
+    # agent performed the forbidden action). Tasks that died on exceptions
+    # have unknown outcomes and are excluded from the denominator.
+    injection_tasks = [r for r in results if r.get("category") == "injection"
+                       and r.get("method") != "error"]
+    injection_attacks_succeeded = sum(1 for r in injection_tasks if not r["success"])
+
+    # Self-repair: tasks where the repair pass ran and the task still passed.
+    self_repair_recoveries = sum(1 for r in results if r.get("repaired") and r["success"])
 
     return {
         "total_tasks": total,
@@ -84,7 +97,6 @@ def compute_metrics(run_data: dict) -> dict:
         "mean_latency_s": round(mean_latency, 2),
         "p95_latency_s": round(p95_latency, 2),
         "total_tokens": total_tokens,
-        "estimated_cost_usd": round(est_cost, 4),
         "failure_taxonomy": dict(failure_reasons),
         "by_category": {k: {"total": v["total"], "success": v["success"],
                             "rate": round(v["success"]/v["total"]*100, 1)}
@@ -92,9 +104,13 @@ def compute_metrics(run_data: dict) -> dict:
         "by_difficulty": {k: {"total": v["total"], "success": v["success"],
                               "rate": round(v["success"]/v["total"]*100, 1)}
                           for k, v in sorted(by_difficulty.items())},
-        "rag_tasks_total": len(rag_tasks),
-        "rag_tasks_with_citations": rag_with_citations,
-        "rag_recall_at_5": round(rag_with_citations / len(rag_tasks) * 100, 1) if rag_tasks else 0,
+        "citation_tasks": len(citation_tasks),
+        "citation_hits": citation_hits,
+        "citation_hit_rate": round(citation_hits / len(citation_tasks) * 100, 1) if citation_tasks else 0,
+        "injection_tasks": len(injection_tasks),
+        "injection_attack_success_rate": round(injection_attacks_succeeded / len(injection_tasks) * 100, 1)
+                                         if injection_tasks else None,
+        "self_repair_recoveries": self_repair_recoveries,
         "total_time_s": run_data.get("total_time_s", 0),
     }
 
@@ -107,17 +123,22 @@ def print_metrics(metrics: dict, config_name: str = ""):
     print(f"Mean Latency:         {metrics['mean_latency_s']:>6}s")
     print(f"P95 Latency:          {metrics['p95_latency_s']:>6}s")
     print(f"Total Tokens:         {metrics['total_tokens']:>6}")
-    print(f"Estimated Cost:       ${metrics['estimated_cost_usd']:<8}")
-    print(f"RAG Recall@5:         {metrics['rag_recall_at_5']:>6}%")
+    print(f"Citation Hit Rate:    {metrics['citation_hit_rate']:>6}%  "
+          f"({metrics['citation_hits']}/{metrics['citation_tasks']} tasks with expected sources)")
+    if metrics.get("injection_attack_success_rate") is not None:
+        print(f"Injection Attacks:    {metrics['injection_attack_success_rate']:>6}% succeeded "
+              f"({metrics['injection_tasks']} red-team tasks)")
+    if metrics.get("self_repair_recoveries"):
+        print(f"Self-Repair Recovers: {metrics['self_repair_recoveries']:>6} tasks rescued by the repair pass")
 
     # Per-category
-    print(f"\nPer-Category Breakdown:")
+    print("\nPer-Category Breakdown:")
     print(f"Category{' '*17} Success  Total   Rate")
     for cat, data in sorted(metrics["by_category"].items()):
         print(f"{cat:<25} {data['success']:>8} {data['total']:>6} {data['rate']:>5}%")
 
     # Per-difficulty
-    print(f"\nPer-Difficulty Breakdown:")
+    print("\nPer-Difficulty Breakdown:")
     print(f"Level{' '*20} Success  Total   Rate")
     for level, data in metrics["by_difficulty"].items():
         label = {1: "L1 Simple", 2: "L2 Medium", 3: "L3 Complex"}.get(level, f"L{level}")
@@ -125,7 +146,7 @@ def print_metrics(metrics: dict, config_name: str = ""):
 
     # Failure taxonomy
     if metrics["failure_taxonomy"]:
-        print(f"\nFailure Taxonomy:")
+        print("\nFailure Taxonomy:")
         for reason, count in sorted(metrics["failure_taxonomy"].items(), key=lambda x: -x[1]):
             print(f"[{count}x] {reason}")
 
@@ -133,27 +154,40 @@ def print_metrics(metrics: dict, config_name: str = ""):
 
 
 def compare_results(results_dir: str):
-    """Load all result files and print a comparison table."""
+    """Load the most recent result file per config and print a comparison table."""
     files = sorted([f for f in os.listdir(results_dir) if f.endswith(".json")])
 
     if not files:
         print("No result files found.")
         return
 
-    all_metrics = []
+    # Keep only the latest run per config so re-runs / duplicate result
+    # files don't pollute the comparison table. Filenames are
+    # "{config}_{timestamp}.json" with timestamp "%Y%m%d_%H%M%S", so a
+    # lexicographic comparison of the "timestamp" field is also chronological.
+    latest_by_config = {}
     for fname in files:
         with open(os.path.join(results_dir, fname), "r") as f:
             data = json.load(f)
-        metrics = compute_metrics(data)
-        metrics["config"] = data.get("config", fname)
+        conf = data.get("config", fname)
+        timestamp = data.get("timestamp", "")
+        existing = latest_by_config.get(conf)
+        if existing is None or timestamp >= existing["timestamp"]:
+            latest_by_config[conf] = {"timestamp": timestamp, "data": data}
+
+    all_metrics = []
+    for conf, entry in sorted(latest_by_config.items()):
+        metrics = compute_metrics(entry["data"])
+        metrics["config"] = conf
         all_metrics.append(metrics)
 
     # Print comparison table
-    print(f"\nEXPERIMENT COMPARISON")
-    print(f"{'Config':<15} {'Success%':>9} {'SideEfx%':>9} {'Recall@5':>9} {'Latency':>8} {'Tokens':>8} {'Cost':>8}")
+    print("\nEXPERIMENT COMPARISON")
+    print(f"{'Config':<15} {'Success%':>9} {'SideEfx%':>9} {'CitHit%':>9} {'Latency':>8} {'Tokens':>8}")
 
     for m in all_metrics:
-        print(f"{m['config']:<15} {m['success_rate']:>8}% {m['side_effect_rate']:>8}% {m['rag_recall_at_5']:>8}% {m['mean_latency_s']:>7}s {m['total_tokens']:>7} ${m['estimated_cost_usd']:>6}")
+        print(f"{m['config']:<15} {m['success_rate']:>8}% {m['side_effect_rate']:>8}% "
+              f"{m['citation_hit_rate']:>8}% {m['mean_latency_s']:>7}s {m['total_tokens']:>7}")
 
     print()
 

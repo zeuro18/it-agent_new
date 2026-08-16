@@ -2,6 +2,7 @@ flask==3.0.3
 flask-sqlalchemy==3.1.1
 browser-use==0.1.40
 playwright==1.49.0
+groq
 langchain-groq==0.2.4
 python-dotenv
 sentence-transformers

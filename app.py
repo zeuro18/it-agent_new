@@ -1,10 +1,7 @@
-#flask==3.0.3 and flask-sqlalchemy==3.1.1 have to be installed first
-
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from database import db, User, License, AuditLog, Group, Ticket
+from flask import Flask, render_template, request, redirect, url_for, flash
+from database import db, User, License, AuditLog, Group, Ticket, seed_db
 from datetime import datetime
-import secrets
-import string
+
 app = Flask(__name__)
 app.secret_key = "it-agent-secret-key-2024"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///itadmin.db"
@@ -13,45 +10,8 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
-    # just putting some users in
     if User.query.count() == 0:
-        seed_users = [
-            User(name="Manas Mehta", email="manas@company.com", role="employee", status="active", department="Engineering"),
-            User(name="ABCD", email="abcd@company.com", role="manager", status="active", department="HR"),
-            User(name="EFGH", email="efgh@company.com", role="employee", status="inactive", department="Sales"),
-            User(name="HIJK", email="hijk@company.com", role="employee", status="inactive", department="IT"),
-            User(name="Nandini Menon", email="Nandini@company.com", role="employee", status="active", department="Legal")
-        ]
-        db.session.add_all(seed_users)
-        db.session.commit()
-        seed_licenses = [
-            License(software="Microsoft 365", assigned_to=1, plan="Pro", assigned_date=datetime.utcnow()),
-            License(software="Slack", assigned_to=1, plan="Business", assigned_date=datetime.utcnow()),
-            License(software="Microsoft 365", assigned_to=2, plan="Pro", assigned_date=datetime.utcnow()),
-        ]
-        db.session.add_all(seed_licenses)
-        db.session.commit()
-        
-        seed_groups = [
-            Group(name="Developers", description="Engineering team members"),
-            Group(name="Marketing", description="Marketing and Sales team members"),
-            Group(name="HR", description="Human Resources"),
-            Group(name="IT Admin", description="IT Administrators")
-        ]
-        db.session.add_all(seed_groups)
-        db.session.commit()
-        
-        seed_users[0].groups.append(seed_groups[0])
-        seed_users[1].groups.append(seed_groups[2])
-        db.session.commit()
-        
-        seed_tickets = [
-            Ticket(created_for=1, issue="Requesting access to GitHub Copilot", priority="Medium", status="Pending"),
-            Ticket(created_for=2, issue="Need a new laptop", priority="High", status="Approved", notes="Processing order"),
-            Ticket(created_for=3, issue="Cannot access Jira", priority="High", status="Resolved", notes="Reset password")
-        ]
-        db.session.add_all(seed_tickets)
-        db.session.commit()
+        seed_db()
 
 # DASHBOARD
 
@@ -127,6 +87,7 @@ def delete_user(user_id):
     user = User.query.get_or_404(user_id)
     email = user.email
     License.query.filter_by(assigned_to=user_id).delete()
+    Ticket.query.filter_by(created_for=user_id).delete()
     db.session.delete(user)
     log = AuditLog(action=f"Deleted user {email}", performed_by="IT Agent")
     db.session.add(log)

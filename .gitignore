@@ -4,8 +4,11 @@ venv/
 *.db
 __pycache__/
 *.pyc
-cd
-del
 venv_old/
 agent_venv_old/
 instance/
+agent/rag/chroma_store/
+agent/rag/bm25_index.pkl
+agent/rag/chunks.json
+eval/results/
+.zcode/

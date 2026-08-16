@@ -2,7 +2,6 @@ import sys
 import os
 from datetime import datetime
 
-# Ensure we can import from the root directory
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
@@ -72,13 +71,82 @@ def revoke_license(email: str, software: str) -> dict:
         db.session.commit()
         return {"success": True, "message": f"Revoked {software} from {email}"}
 
+def reset_password(email: str, new_password: str = "") -> dict:
+    """Reset a user's password. Records a timestamped reset hint; the actual
+    password value is not persisted (mirrors the web app's behavior)."""
+    with get_app_context():
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return {"success": False, "error": f"User {email} not found"}
+
+        user.password_hint = f"[reset on {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}]"
+        log = AuditLog(action=f"Reset password for {email}", performed_by="Tool Agent")
+        db.session.add(log)
+        db.session.commit()
+        return {"success": True, "message": f"Password for {email} has been reset"}
+
+def create_user(name: str, email: str, department: str = "General", role: str = "employee") -> dict:
+    """Create a new user account."""
+    with get_app_context():
+        if User.query.filter_by(email=email).first():
+            return {"success": False, "error": f"User {email} already exists"}
+
+        user = User(name=name, email=email, role=role, department=department, status="active")
+        db.session.add(user)
+        log = AuditLog(action=f"Created user {email}", performed_by="Tool Agent")
+        db.session.add(log)
+        db.session.commit()
+        return {"success": True, "message": f"Created user {name} ({email})"}
+
+def delete_user(email: str) -> dict:
+    """Permanently delete a user along with their licenses, tickets, and group memberships."""
+    with get_app_context():
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return {"success": False, "error": f"User {email} not found"}
+
+        License.query.filter_by(assigned_to=user.id).delete()
+        Ticket.query.filter_by(created_for=user.id).delete()
+        user.groups.clear()
+        db.session.delete(user)
+        log = AuditLog(action=f"Deleted user {email}", performed_by="Tool Agent")
+        db.session.add(log)
+        db.session.commit()
+        return {"success": True, "message": f"Deleted user {email}"}
+
+def edit_user(email: str, department: str = None, role: str = None, status: str = None) -> dict:
+    """Edit a user's department, role, and/or status. Only provided fields change."""
+    with get_app_context():
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return {"success": False, "error": f"User {email} not found"}
+
+        changes = []
+        if department is not None:
+            user.department = department
+            changes.append(f"department={department}")
+        if role is not None:
+            user.role = role
+            changes.append(f"role={role}")
+        if status is not None:
+            user.status = status
+            changes.append(f"status={status}")
+
+        if not changes:
+            return {"success": False, "error": "No fields provided to update"}
+
+        log = AuditLog(action=f"Edited user {email}: {', '.join(changes)}", performed_by="Tool Agent")
+        db.session.add(log)
+        db.session.commit()
+        return {"success": True, "message": f"Updated {email}: {', '.join(changes)}"}
+
 def list_pending_tickets() -> list[dict]:
     """List all pending tickets that require IT review."""
     with get_app_context():
         tickets = Ticket.query.filter_by(status="Pending").all()
         result = []
         for t in tickets:
-            user = User.query.get(t.created_for)
+            user = db.session.get(User, t.created_for)
             result.append({
                 "ticket_id": t.id,
                 "email": user.email if user else "Unknown",
@@ -91,7 +159,7 @@ def list_pending_tickets() -> list[dict]:
 def update_ticket(ticket_id: int, status: str, notes: str = "") -> dict:
     """Update ticket status (e.g., 'Approved', 'Rejected') and add notes."""
     with get_app_context():
-        ticket = Ticket.query.get(ticket_id)
+        ticket = db.session.get(Ticket, ticket_id)
         if not ticket:
             return {"success": False, "error": f"Ticket #{ticket_id} not found"}
         
@@ -143,9 +211,3 @@ def remove_user_from_group(email: str, group_name: str) -> dict:
         db.session.add(log)
         db.session.commit()
         return {"success": True, "message": f"Removed {email} from {group_name}"}
-
-# List of available tool callables for the agent
-AVAILABLE_TOOLS = [
-    user_lookup, list_licenses, assign_license, revoke_license,
-    list_pending_tickets, update_ticket, assign_user_to_group, remove_user_from_group
-]

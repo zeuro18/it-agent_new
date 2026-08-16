@@ -137,10 +137,13 @@ def retrieve(query: str, k: int = 5, mode: str = "hybrid") -> list[dict]:
         bm25_hits = _bm25_search(query, k=k * 2)
         results = _reciprocal_rank_fusion(dense_hits, bm25_hits)
 
-    # Trim to k and add citations
+    # Trim to k and add citations. Most chunks have no section title (the
+    # PDF/DOCX corpus has no markdown headers to split on), so the section
+    # is only included when present.
     results = results[:k]
     for r in results:
-        r["citation"] = f"[source: {r['source']} §{r['section']}]"
+        section = f" section {r['section']}" if r.get("section") else ""
+        r["citation"] = f"[source: {r['source']}{section}]"
 
     return results
 
