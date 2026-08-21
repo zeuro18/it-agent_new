@@ -14,7 +14,7 @@
     <div class="form-group">
       <label for="user_id">User</label>
       <select id="user_id" name="user_id" required>
-        <option value="">— Select a user —</option>
+        <option value="">Select a user</option>
         {% for user in users %}
         <option value="{{ user.id }}">{{ user.name }} ({{ user.email }})</option>
         {% endfor %}

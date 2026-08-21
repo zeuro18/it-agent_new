@@ -333,6 +333,8 @@
     <a href="/users" {% if request.endpoint in ['users','add_user','edit_user'] %}class="active" {% endif %}>Users</a>
     <a href="/reset-password" {% if request.endpoint=='reset_password' %}class="active" {% endif %}>Reset Password</a>
     <a href="/licenses" {% if request.endpoint=='licenses' %}class="active" {% endif %}>Licenses</a>
+    <a href="/groups" {% if request.endpoint=='groups' %}class="active" {% endif %}>Groups</a>
+    <a href="/tickets" {% if request.endpoint=='tickets' %}class="active" {% endif %}>Tickets</a>
     <a href="/audit" {% if request.endpoint=='audit' %}class="active" {% endif %}>Audit Log</a>
   </nav>
 

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Ticketing & Approvals</h1>
+    <p>Manage employee requests for software and hardware.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h2>Support Tickets</h2>
+    
+    <!-- Simple filtering to challenge the browser agent -->
+    <div style="display:flex; gap:8px;">
+      <select id="statusFilter" onchange="filterTickets()" style="width:150px; padding:4px 8px;">
+        <option value="all">All Statuses</option>
+        <option value="Pending">Pending</option>
+        <option value="Approved">Approved</option>
+        <option value="Resolved">Resolved</option>
+        <option value="Rejected">Rejected</option>
+      </select>
+    </div>
+  </div>
+
+  {% if tickets %}
+  <table id="ticketsTable">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Requested By</th>
+        <th>Issue</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ticket, user in tickets %}
+      <tr data-status="{{ ticket.status }}">
+        <td>#{{ ticket.id }}</td>
+        <td>{{ user.name }} <br><span style="font-size:11px; color:#666;">{{ user.email }}</span></td>
+        <td style="max-width: 250px;">{{ ticket.issue }}</td>
+        <td>
+          {% if ticket.priority == 'High' %}
+            <span class="badge badge-active" style="color:red; border-color:red;">High</span>
+          {% else %}
+            <span class="badge">{{ ticket.priority }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge 
+            {% if ticket.status == 'Pending' %}badge-active
+            {% elif ticket.status == 'Approved' or ticket.status == 'Resolved' %}badge-active
+            {% else %}badge-inactive{% endif %}">
+            {{ ticket.status }}
+          </span>
+        </td>
+        <td style="max-width: 150px; font-size:12px; color:#555;">{{ ticket.notes }}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="openUpdateModal({{ ticket.id }}, '{{ ticket.status }}', '{{ ticket.notes | escape }}')">Update</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    <p>No tickets found.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Update Ticket Modal -->
+<div id="updateTicketModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999;">
+  <div style="background:#fff; width:450px; margin:100px auto; padding:24px; border:1px solid #111; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+    <h2>Update Ticket #<span id="modalTicketIdLabel"></span></h2>
+    
+    <form id="updateForm" method="POST" style="margin-top:16px;">
+      <div class="form-group">
+        <label>Status</label>
+        <select name="status" id="modalStatus" required>
+          <option value="Pending">Pending</option>
+          <option value="Approved">Approved</option>
+          <option value="Rejected">Rejected</option>
+          <option value="Resolved">Resolved</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Admin Notes</label>
+        <input type="text" name="notes" id="modalNotes" placeholder="Reason for approval/rejection..." />
+      </div>
+      
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:24px;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('updateTicketModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openUpdateModal(ticketId, currentStatus, currentNotes) {
+  document.getElementById('modalTicketIdLabel').innerText = ticketId;
+  document.getElementById('updateForm').action = "/tickets/" + ticketId + "/update";
+  document.getElementById('modalStatus').value = currentStatus;
+  document.getElementById('modalNotes').value = currentNotes;
+  document.getElementById('updateTicketModal').style.display = 'block';
+}
+
+function filterTickets() {
+  const filter = document.getElementById('statusFilter').value;
+  const rows = document.querySelectorAll('#ticketsTable tbody tr');
+  rows.forEach(row => {
+    if (filter === 'all' || row.getAttribute('data-status') === filter) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+}
+</script>
+
+{% endblock %}

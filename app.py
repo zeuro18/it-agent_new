@@ -1,10 +1,7 @@
-#flask==3.0.3 and flask-sqlalchemy==3.1.1 have to be installed first
-
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from database import db, User, License, AuditLog
+from flask import Flask, render_template, request, redirect, url_for, flash
+from database import db, User, License, AuditLog, Group, Ticket, seed_db
 from datetime import datetime
-import secrets
-import string
+
 app = Flask(__name__)
 app.secret_key = "it-agent-secret-key-2024"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///itadmin.db"
@@ -13,24 +10,8 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
-    # just putting some users in
     if User.query.count() == 0:
-        seed_users = [
-            User(name="Manas Mehta", email="manas@company.com", role="employee", status="active", department="Engineering"),
-            User(name="Pranav Bakshi", email="pranav@company.com", role="manager", status="active", department="HR"),
-            User(name="Tuhin Biswas", email="tuhin@company.com", role="employee", status="inactive", department="Sales"),
-            User(name="Anurag Singha", email="anurag@company.com", role="employee", status="inactive", department="IT"),
-            User(name="Nandini Menon", email="Nandini@company.com", role="employee", status="active", department="Legal")
-        ]
-        db.session.add_all(seed_users)
-        db.session.commit()
-        seed_licenses = [
-            License(software="Microsoft 365", assigned_to=1, plan="Pro", assigned_date=datetime.utcnow()),
-            License(software="Slack", assigned_to=1, plan="Business", assigned_date=datetime.utcnow()),
-            License(software="Microsoft 365", assigned_to=2, plan="Pro", assigned_date=datetime.utcnow()),
-        ]
-        db.session.add_all(seed_licenses)
-        db.session.commit()
+        seed_db()
 
 # DASHBOARD
 
@@ -91,7 +72,6 @@ def edit_user(user_id):
         user.department = request.form["department"].strip()
         user.status = request.form["status"]
         db.session.commit()
-
         log = AuditLog(action=f"Edited user {user.email}", performed_by="IT Agent")
         db.session.add(log)
         db.session.commit()
@@ -107,6 +87,7 @@ def delete_user(user_id):
     user = User.query.get_or_404(user_id)
     email = user.email
     License.query.filter_by(assigned_to=user_id).delete()
+    Ticket.query.filter_by(created_for=user_id).delete()
     db.session.delete(user)
     log = AuditLog(action=f"Deleted user {email}", performed_by="IT Agent")
     db.session.add(log)
@@ -190,6 +171,78 @@ def revoke_license(lic_id):
 def audit():
     logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).all()
     return render_template("audit.html", logs=logs)
+
+# GROUPS
+
+@app.route("/groups")
+def groups():
+    all_groups = Group.query.all()
+    all_users = User.query.filter_by(status="active").all()
+    return render_template("groups.html", groups=all_groups, users=all_users)
+
+@app.route("/groups/add", methods=["POST"])
+def add_group():
+    name = request.form["name"].strip()
+    description = request.form["description"].strip()
+    if Group.query.filter_by(name=name).first():
+        flash(f"Group {name} already exists.", "error")
+    else:
+        group = Group(name=name, description=description)
+        db.session.add(group)
+        log = AuditLog(action=f"Created group {name}", performed_by="IT Agent")
+        db.session.add(log)
+        db.session.commit()
+        flash(f"Group {name} created successfully!", "success")
+    return redirect(url_for("groups"))
+
+@app.route("/groups/<int:group_id>/assign", methods=["POST"])
+def assign_group(group_id):
+    user_id = int(request.form["user_id"])
+    group = Group.query.get_or_404(group_id)
+    user = User.query.get_or_404(user_id)
+    if group not in user.groups:
+        user.groups.append(group)
+        log = AuditLog(action=f"Assigned user {user.email} to group {group.name}", performed_by="IT Agent")
+        db.session.add(log)
+        db.session.commit()
+        flash(f"User {user.email} added to {group.name}", "success")
+    else:
+        flash(f"User {user.email} is already in {group.name}", "error")
+    return redirect(url_for("groups"))
+
+@app.route("/groups/<int:group_id>/remove", methods=["POST"])
+def remove_group(group_id):
+    user_id = int(request.form["user_id"])
+    group = Group.query.get_or_404(group_id)
+    user = User.query.get_or_404(user_id)
+    if group in user.groups:
+        user.groups.remove(group)
+        log = AuditLog(action=f"Removed user {user.email} from group {group.name}", performed_by="IT Agent")
+        db.session.add(log)
+        db.session.commit()
+        flash(f"User {user.email} removed from {group.name}", "success")
+    return redirect(url_for("groups"))
+
+# TICKETS
+
+@app.route("/tickets")
+def tickets():
+    all_tickets = db.session.query(Ticket, User).join(User, Ticket.created_for == User.id).all()
+    return render_template("tickets.html", tickets=all_tickets)
+
+@app.route("/tickets/<int:ticket_id>/update", methods=["POST"])
+def update_ticket(ticket_id):
+    ticket = Ticket.query.get_or_404(ticket_id)
+    status = request.form["status"]
+    notes = request.form["notes"].strip()
+    ticket.status = status
+    if notes:
+        ticket.notes = notes
+    log = AuditLog(action=f"Updated ticket #{ticket.id} to {status}", performed_by="IT Agent")
+    db.session.add(log)
+    db.session.commit()
+    flash(f"Ticket #{ticket.id} updated to {status}.", "success")
+    return redirect(url_for("tickets"))
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
