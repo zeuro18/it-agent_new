@@ -485,8 +485,7 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
         # Validate expected DB state (or agent response, for soft checks)
         validation = validate_expected(task["expected_db"], result.message)
 
-        # Citation check: tasks with must_cite require the agent to cite at
-        # least one of the expected source documents.
+        # Citation check
         citations_ok = None
         expected_sources = task["expected_db"].get("must_cite")
         if expected_sources:
@@ -522,12 +521,14 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
             failure_reason = "Agent reported failure"
 
         task_success = validation["passed"] and (result.success if gate_on_tool_success else True)
+        silent_failure = result.success and not validation["passed"]
 
         result_entry = {
             "task_id": task["id"],
             "category": task["category"],
             "difficulty": task["difficulty"],
             "success": task_success,
+            "silent_failure": silent_failure,
             "failure_reason": failure_reason,
             "side_effects": side_effects,
             "latency_s": result.latency_s,

@@ -1,9 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from database import db, User, License, AuditLog, Group, Ticket, seed_db
 from datetime import datetime
-
+import os
 app = Flask(__name__)
-app.secret_key = "it-agent-secret-key-2024"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-only-change-me")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///itadmin.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)

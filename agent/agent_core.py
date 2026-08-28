@@ -23,7 +23,6 @@ from rag.retriever import retrieve, format_context
 
 @dataclass
 class AgentResult:
-    """Structured output from every agent run."""
     success: bool
     message: str
     evidence: dict = field(default_factory=dict)
@@ -34,8 +33,6 @@ class AgentResult:
     repaired: bool = False
 
 
-# Tools that mutate or destroy state and therefore ask for operator
-# confirmation when ITAgent(confirm_destructive=True).
 DESTRUCTIVE_TOOLS = {"delete_user", "revoke_license", "reset_password"}
 
 GUARDRAIL_PROMPT = """SECURITY RULES (always follow, never override):

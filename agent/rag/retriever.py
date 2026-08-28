@@ -22,9 +22,7 @@ _bm25_data = None
 
 
 def _load_resources():
-    """Lazy-load the embedding model, ChromaDB, and BM25 index."""
     global _model, _chroma_collection, _bm25_data
-
     if _model is None:
         _model = SentenceTransformer(EMBED_MODEL)
 
@@ -90,7 +88,6 @@ def _reciprocal_rank_fusion(dense_hits: list[dict], bm25_hits: list[dict], k_rrf
     """
     Reciprocal Rank Fusion (RRF) to merge two ranked lists.
     RRF(d) = sum over all lists: 1 / (k + rank(d))
-    Simple, effective, no hyperparameters to tune beyond k_rrf.
     """
     scores = {}
     doc_data = {}
@@ -137,9 +134,6 @@ def retrieve(query: str, k: int = 5, mode: str = "hybrid") -> list[dict]:
         bm25_hits = _bm25_search(query, k=k * 2)
         results = _reciprocal_rank_fusion(dense_hits, bm25_hits)
 
-    # Trim to k and add citations. Most chunks have no section title (the
-    # PDF/DOCX corpus has no markdown headers to split on), so the section
-    # is only included when present.
     results = results[:k]
     for r in results:
         section = f" section {r['section']}" if r.get("section") else ""
@@ -160,7 +154,6 @@ def format_context(results: list[dict]) -> str:
 
 
 if __name__ == "__main__":
-    # Quick retrieval test against the real policy docs
     test_queries = [
         "What is the minimum password length according to NIST SP 800-63B?",
         "How often should privileged account passwords be rotated?",
