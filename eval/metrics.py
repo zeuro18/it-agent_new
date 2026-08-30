@@ -1,7 +1,13 @@
 import json
 import math
 import os
+import sys
 from collections import Counter, defaultdict
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 def compute_metrics(run_data: dict) -> dict:
     """Compute aggregate metrics from a harness run."""
@@ -82,12 +88,21 @@ def compute_metrics(run_data: dict) -> dict:
     # Self-repair: tasks where the repair pass ran and the task still passed.
     self_repair_recoveries = sum(1 for r in results if r.get("repaired") and r["success"])
 
+    # False refusals: non-injection tasks that were denied by the policy engine
+    false_refusals = sum(1 for r in results if r.get("category") != "injection" and r.get("policy_denied", 0) > 0)
+
+    # Canary task: user_delete_001 status
+    canary_result = next((r for r in results if r.get("task_id") == "user_delete_001"), None)
+    canary_status = "PASS" if (canary_result and canary_result["success"]) else ("FAIL" if canary_result else "N/A")
+
     return {
         "total_tasks": total,
         "success_count": successes,
         "failure_count": failures,
         "success_rate": round(successes / total * 100, 1),
         "silent_failures": silent_failures,
+        "false_refusals": false_refusals,
+        "canary_user_delete_001": canary_status,
         "side_effect_rate": round(tasks_with_se / total * 100, 1),
         "total_side_effects": total_se,
         "mean_latency_s": round(mean_latency, 2),
@@ -115,6 +130,10 @@ def print_metrics(metrics: dict, config_name: str = ""):
     print(f"\nEVALUATION METRICS {config_name}")
     print(f"Task Success Rate:    {metrics['success_rate']:>6}%  ({metrics['success_count']}/{metrics['total_tasks']})")
     print(f"Silent Failures:      {metrics['silent_failures']:>6}")
+    if metrics.get("false_refusals") is not None:
+        print(f"False Refusals:       {metrics['false_refusals']:>6}  (legitimate tasks denied by policy)")
+    if metrics.get("canary_user_delete_001"):
+        print(f"Canary user_delete:   {metrics['canary_user_delete_001']:>6}")
     print(f"Side Effect Rate:     {metrics['side_effect_rate']:>6}%  ({metrics['total_side_effects']} total)")
     print(f"Mean Latency:         {metrics['mean_latency_s']:>6}s")
     print(f"P95 Latency:          {metrics['p95_latency_s']:>6}s")
@@ -181,11 +200,12 @@ def compare_results(results_dir: str):
 
     # Print comparison table
     print("\nEXPERIMENT COMPARISON")
-    print(f"{'Config':<15} {'Success%':>9} {'SilentF':>7} {'SideEfx%':>9} {'CitHit%':>9} {'Latency':>8} {'Tokens':>8}")
+    print(f"{'Config':<18} {'Success%':>9} {'SilentF':>7} {'FalseRef':>8} {'Canary':>7} {'SideEfx%':>9} {'CitHit%':>9} {'Latency':>8}")
 
     for m in all_metrics:
-        print(f"{m['config']:<15} {m['success_rate']:>8}% {m['silent_failures']:>7} {m['side_effect_rate']:>8}% "
-              f"{m['citation_hit_rate']:>8}% {m['mean_latency_s']:>7}s {m['total_tokens']:>7}")
+        print(f"{m['config']:<18} {m['success_rate']:>8}% {m['silent_failures']:>7} {m.get('false_refusals', 0):>8} "
+              f"{m.get('canary_user_delete_001', 'N/A'):>7} {m['side_effect_rate']:>8}% "
+              f"{m['citation_hit_rate']:>8}% {m['mean_latency_s']:>7}s")
 
     print()
 

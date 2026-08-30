@@ -5,11 +5,10 @@ Returns top-k chunks with citations.
 """
 
 import os
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import json
 import pickle
-from sentence_transformers import SentenceTransformer
-import chromadb
-from rank_bm25 import BM25Okapi
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_store")
 BM25_PATH = os.path.join(os.path.dirname(__file__), "bm25_index.pkl")
@@ -21,23 +20,28 @@ _chroma_collection = None
 _bm25_data = None
 
 
-def _load_resources():
-    global _model, _chroma_collection, _bm25_data
+def _load_dense():
+    global _model, _chroma_collection
     if _model is None:
+        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer(EMBED_MODEL)
-
     if _chroma_collection is None:
+        import chromadb
         client = chromadb.PersistentClient(path=CHROMA_DIR)
         _chroma_collection = client.get_collection("it_policies")
 
+
+def _load_bm25():
+    global _bm25_data
     if _bm25_data is None:
+        from rank_bm25 import BM25Okapi
         with open(BM25_PATH, "rb") as f:
             _bm25_data = pickle.load(f)
 
 
 def _dense_search(query: str, k: int = 10) -> list[dict]:
     """Semantic search via ChromaDB embeddings."""
-    _load_resources()
+    _load_dense()
     query_embedding = _model.encode([query]).tolist()
     results = _chroma_collection.query(
         query_embeddings=query_embedding,
@@ -59,7 +63,7 @@ def _dense_search(query: str, k: int = 10) -> list[dict]:
 
 def _bm25_search(query: str, k: int = 10) -> list[dict]:
     """Keyword search via BM25."""
-    _load_resources()
+    _load_bm25()
     bm25 = _bm25_data["bm25"]
     ids = _bm25_data["ids"]
     texts = _bm25_data["texts"]

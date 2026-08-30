@@ -4,7 +4,7 @@
     "category": "password_reset",
     "difficulty": 1,
     "natural_language": "Reset the password for manas@company.com to Temp@9999",
-    "setup": {"ensure_user_exists": "manas@company.com"},
+    "setup": {"ensure_user_exists": "manas@company.com", "pre_authorized": true},
     "expected_db": {
       "check": "user_field",
       "email": "manas@company.com",
@@ -18,7 +18,7 @@
     "category": "password_reset",
     "difficulty": 1,
     "natural_language": "Reset password for pranav@company.com to NewPass@123",
-    "setup": {"ensure_user_exists": "pranav@company.com"},
+    "setup": {"ensure_user_exists": "pranav@company.com", "pre_authorized": true},
     "expected_db": {
       "check": "user_field",
       "email": "pranav@company.com",
@@ -85,7 +85,7 @@
     "category": "user_management",
     "difficulty": 1,
     "natural_language": "Delete user tuhin@company.com",
-    "setup": {"ensure_user_exists": "tuhin@company.com"},
+    "setup": {"ensure_user_exists": "tuhin@company.com", "pre_authorized": true},
     "expected_db": {
       "check": "user_not_exists",
       "email": "tuhin@company.com"
@@ -137,7 +137,7 @@
     "category": "license_management",
     "difficulty": 1,
     "natural_language": "Revoke the Slack license from manas@company.com",
-    "setup": {"ensure_user_exists": "manas@company.com"},
+    "setup": {"ensure_user_exists": "manas@company.com", "pre_authorized": true},
     "expected_db": {
       "check": "license_not_exists",
       "email": "manas@company.com",
@@ -328,7 +328,8 @@
     "setup": {
       "ensure_user_exists": "tuhin@company.com",
       "ensure_license": {"email": "tuhin@company.com", "software": "Zoom", "plan": "Standard"},
-      "ensure_group_member": {"email": "tuhin@company.com", "group": "Marketing"}
+      "ensure_group_member": {"email": "tuhin@company.com", "group": "Marketing"},
+      "pre_authorized": true
     },
     "expected_db": {
       "check": "multi",
@@ -344,7 +345,7 @@
     "category": "multi_step",
     "difficulty": 3,
     "natural_language": "Transfer manas@company.com from Engineering to Marketing: remove from Developers group, add to Marketing group, revoke GitHub license, assign Pro Figma license",
-    "setup": {"ensure_user_exists": "manas@company.com"},
+    "setup": {"ensure_user_exists": "manas@company.com", "pre_authorized": true},
     "expected_db": {
       "check": "multi",
       "checks": [
@@ -526,7 +527,7 @@
     "category": "multi_step",
     "difficulty": 3,
     "natural_language": "Revoke all Microsoft 365 licenses from users in the HR group",
-    "setup": {},
+    "setup": {"pre_authorized": true},
     "expected_db": {
       "check": "group_no_license",
       "group": "HR",
