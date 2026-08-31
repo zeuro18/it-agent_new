@@ -38,6 +38,10 @@ from database import db, User, License, AuditLog, Group, Ticket, seed_db
 
 TASKS_PATH = os.path.join(os.path.dirname(__file__), "tasks_bank.json")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+# Proactive gap between tasks within a single harness run (seconds). Override
+# with EVAL_TASK_PACING_S=0 to disable, or raise it if you're still seeing
+# reactive 429 waits in agent_core._invoke.
+TASK_PACING_S = float(os.getenv("EVAL_TASK_PACING_S", "2.0"))
 
 
 # DB snapshot and reset
@@ -103,7 +107,7 @@ def apply_setup(setup: dict):
 
     Seeded users (see seed_db) already satisfy most ensure_user_exists
     preconditions; this only creates a user when the task needs one that
-    isn't part of the fixed seed set (e.g. anurag@company.com in tasks that
+    isn't part of the fixed seed set (e.g. daniel@company.com in tasks that
     reuse it, or any future ad-hoc email).
     """
     if not setup:
@@ -609,6 +613,13 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
         status = "[PASS]" if task_success else "[FAIL]"
         se_warning = f" | {len(side_effects)} side effects" if side_effects else ""
         print(f"    {status} {result.latency_s}s, {result.tokens_used} tokens{se_warning}", flush=True)
+
+        # Small proactive gap between tasks. _invoke() already retries
+        # reactively after a 429, but that can sleep up to 5 minutes per hit;
+        # spreading requests out here means fewer of those reactive waits in
+        # the first place. Cheap insurance, not a real rate limiter.
+        if i < len(tasks) - 1:
+            time.sleep(TASK_PACING_S)
 
     total_elapsed = time.time() - total_start
 

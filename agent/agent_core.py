@@ -294,7 +294,21 @@ class ITAgent:
         
         while attempt < max_attempts:
             try:
-                kwargs = {"model": self.model, "messages": messages, "temperature": 0.0}
+                kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": 0.0,
+                    # qwen3.6-27b defaults to thinking mode (reasoning_effort="default"),
+                    # which generates a full <think> chain-of-thought as *billed completion
+                    # tokens* on every single turn of the loop, not just once. This is a
+                    # tool-calling admin agent, not a math/proof solver -- reasoning depth
+                    # buys us little here and the cost compounds with every turn and every
+                    # repair pass. "parsed" keeps any reasoning content (if ever re-enabled)
+                    # out of msg.content so it can never leak into resent history either.
+                    "reasoning_effort": "none",
+                    "reasoning_format": "parsed",
+                    "max_completion_tokens": 1024,
+                }
                 if tools:
                     kwargs["tools"] = tools
                 return self.client.chat.completions.create(**kwargs)

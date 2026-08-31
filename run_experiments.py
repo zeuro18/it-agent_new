@@ -3,6 +3,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import time
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "eval", "results")
@@ -102,7 +103,7 @@ def run_experiments(fast: bool = True, delay_s: float = 15.0, repeat: int = 1,
             print(f"\n{label}Running config: {conf}")
             start_time = time.time()
 
-            cmd = ["python", "eval/harness.py", "--config", conf]
+            cmd = [sys.executable, "eval/harness.py", "--config", conf]
             if fast:
                 cmd.append("--fast")
             if simulate_flaky_writes:
@@ -125,7 +126,7 @@ def run_experiments(fast: bool = True, delay_s: float = 15.0, repeat: int = 1,
         aggregate_repeats(start_marker)
     else:
         print("Generating comparison metrics...")
-        subprocess.run(["python", "eval/metrics.py", "--results", "eval/results/"])
+        subprocess.run([sys.executable, "eval/metrics.py", "--results", "eval/results/"])
 
 
 if __name__ == "__main__":
