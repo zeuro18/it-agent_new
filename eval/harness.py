@@ -24,6 +24,11 @@ import json
 import time
 from datetime import datetime
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 sys.path.insert(0, os.path.join(project_root, 'agent'))
@@ -33,6 +38,10 @@ from database import db, User, License, AuditLog, Group, Ticket, seed_db
 
 TASKS_PATH = os.path.join(os.path.dirname(__file__), "tasks_bank.json")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+# Proactive gap between tasks within a single harness run (seconds). Override
+# with EVAL_TASK_PACING_S=0 to disable, or raise it if you're still seeing
+# reactive 429 waits in agent_core._invoke.
+TASK_PACING_S = float(os.getenv("EVAL_TASK_PACING_S", "2.0"))
 
 
 # DB snapshot and reset
@@ -98,7 +107,7 @@ def apply_setup(setup: dict):
 
     Seeded users (see seed_db) already satisfy most ensure_user_exists
     preconditions; this only creates a user when the task needs one that
-    isn't part of the fixed seed set (e.g. anurag@company.com in tasks that
+    isn't part of the fixed seed set (e.g. daniel@company.com in tasks that
     reuse it, or any future ad-hoc email).
     """
     if not setup:
@@ -149,6 +158,7 @@ def apply_setup(setup: dict):
             if ticket:
                 ticket.notes = (ticket.notes + "\n" if ticket.notes else "") + spec["note"]
                 db.session.commit()
+        # pre_authorized is metadata for the harness/policy; no DB action needed.
 
 
 # Validation checks
@@ -399,24 +409,65 @@ def diff_snapshots(before: dict, after: dict) -> list[str]:
 # Main harness
 
 CONFIGS = {
-    "baseline":    {"rag_mode": "none",   "use_tools": False},
-    "tools_only":  {"rag_mode": "none",   "use_tools": True},
-    "dense":       {"rag_mode": "dense",  "use_tools": True},
-    "bm25":        {"rag_mode": "bm25",   "use_tools": True},
-    "hybrid":      {"rag_mode": "hybrid", "use_tools": True},
+    "baseline":          {"rag_mode": "none",   "use_tools": False, "verify_mode": "tool",  "use_policy": False},
+    "tools_only":        {"rag_mode": "none",   "use_tools": True,  "verify_mode": "tool",  "use_policy": False},
+    "dense":             {"rag_mode": "dense",  "use_tools": True,  "verify_mode": "tool",  "use_policy": False},
+    "bm25":              {"rag_mode": "bm25",   "use_tools": True,  "verify_mode": "tool",  "use_policy": False},
+    "hybrid":            {"rag_mode": "hybrid", "use_tools": True,  "verify_mode": "tool",  "use_policy": False},
+    # Experiment A: DB-state verification
+    "hybrid_db_verify":  {"rag_mode": "hybrid", "use_tools": True,  "verify_mode": "db",    "use_policy": False},
+    # Experiment B: Deterministic policy engine
+    "hybrid_no_policy":  {"rag_mode": "hybrid", "use_tools": True,  "verify_mode": "tool",  "use_policy": False},
+    "hybrid_policy":     {"rag_mode": "hybrid", "use_tools": True,  "verify_mode": "tool",  "use_policy": True},
 }
 
 
+import random
+
+_FLAKY_PATCHED = False
+_FLAKY_ACTIVE = False
+
+def _patch_flaky_writes(rate: float = 0.15):
+    """
+    Simulate flaky database writes (for Phase 1 Experiment A).
+    During agent tool execution, randomly drops ~15% of DB commits
+    by rolling back instead, testing whether verifier.py catches the mismatch.
+    """
+    global _FLAKY_PATCHED, _FLAKY_ACTIVE
+    _FLAKY_ACTIVE = True
+    if _FLAKY_PATCHED:
+        return
+    _FLAKY_PATCHED = True
+
+    orig_commit = db.session.commit
+
+    def flaky_commit():
+        if _FLAKY_ACTIVE and random.random() < rate:
+            db.session.rollback()
+            print("    [FLAKY WRITE SIMULATED] Dropped DB commit!")
+            return
+        return orig_commit()
+
+    db.session.commit = flaky_commit
+
+
 def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bool = False,
-                guardrails: bool = True, category: str = None):
+                guardrails: bool = True, category: str = None,
+                simulate_flaky_writes: bool = False):
     """Run the evaluation harness."""
     from agent_core import ITAgent
 
     config = CONFIGS.get(config_name, CONFIGS["hybrid"])
     print(f"\nEVAL HARNESS Config: {config_name}")
     print(f"RAG: {config['rag_mode']} | Tools: {config['use_tools']} | "
-          f"Browser fallback: {use_browser} | Guardrails: {guardrails}"
+          f"Browser fallback: {use_browser} | Guardrails: {guardrails} | "
+          f"VerifyMode: {config.get('verify_mode', 'tool')} | "
+          f"Policy: {config.get('use_policy', False)}"
+          + (f" | FlakySim: ON" if simulate_flaky_writes else "")
           + (f" | Category: {category}" if category else ""))
+
+    if simulate_flaky_writes:
+        _patch_flaky_writes()
 
     if use_browser:
         # Eval runs shouldn't pop up a visible browser window.
@@ -448,22 +499,31 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
         use_tools=config["use_tools"],
         use_browser=use_browser,
         guardrails=guardrails,
+        verify_mode=config.get("verify_mode", "tool"),
+        use_policy=config.get("use_policy", False),
     )
 
     results = []
     total_start = time.time()
 
     for i, task in enumerate(tasks):
-        print(f"  [{i+1}/{len(tasks)}] {task['id']}: {task['natural_language'][:60]}...")
+        print(f"  [{i+1}/{len(tasks)}] {task['id']}: {task['natural_language'][:60]}...", flush=True)
 
         # Fresh seed state, then task-specific preconditions, before each run
         reset_db()
         apply_setup(task.get("setup"))
 
+        # Extract pre_authorized flag from setup for the policy engine
+        pre_authorized = bool((task.get("setup") or {}).get("pre_authorized", False))
+        agent.pre_authorized = pre_authorized
+
         before = snapshot_db()
 
         try:
-            result = agent.run(task["natural_language"])
+            result = agent.run(task["natural_language"], task_id=task["id"])
+            if result.trace:
+                traces_dir = os.path.join(RESULTS_DIR, "traces")
+                result.trace.save(traces_dir)
         except Exception as e:
             result_entry = {
                 "task_id": task["id"],
@@ -485,8 +545,7 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
         # Validate expected DB state (or agent response, for soft checks)
         validation = validate_expected(task["expected_db"], result.message)
 
-        # Citation check: tasks with must_cite require the agent to cite at
-        # least one of the expected source documents.
+        # Citation check
         citations_ok = None
         expected_sources = task["expected_db"].get("must_cite")
         if expected_sources:
@@ -522,12 +581,21 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
             failure_reason = "Agent reported failure"
 
         task_success = validation["passed"] and (result.success if gate_on_tool_success else True)
+        silent_failure = result.success and not validation["passed"]
+
+        # Count policy-denied calls (Experiment B metric)
+        policy_denied = sum(
+            1 for e in (result.evidence or [])
+            if isinstance(e.get("result"), dict)
+            and "Policy denied" in e["result"].get("error", "")
+        )
 
         result_entry = {
             "task_id": task["id"],
             "category": task["category"],
             "difficulty": task["difficulty"],
             "success": task_success,
+            "silent_failure": silent_failure,
             "failure_reason": failure_reason,
             "side_effects": side_effects,
             "latency_s": result.latency_s,
@@ -537,12 +605,21 @@ def run_harness(config_name: str = "hybrid", fast: bool = False, use_browser: bo
             "citations_ok": citations_ok,
             "repaired": result.repaired,
             "agent_message": result.message[:200] if result.message else "",
+            "pre_authorized": pre_authorized,
+            "policy_denied": policy_denied,
         }
         results.append(result_entry)
 
         status = "[PASS]" if task_success else "[FAIL]"
         se_warning = f" | {len(side_effects)} side effects" if side_effects else ""
-        print(f"    {status} {result.latency_s}s, {result.tokens_used} tokens{se_warning}")
+        print(f"    {status} {result.latency_s}s, {result.tokens_used} tokens{se_warning}", flush=True)
+
+        # Small proactive gap between tasks. _invoke() already retries
+        # reactively after a 429, but that can sleep up to 5 minutes per hit;
+        # spreading requests out here means fewer of those reactive waits in
+        # the first place. Cheap insurance, not a real rate limiter.
+        if i < len(tasks) - 1:
+            time.sleep(TASK_PACING_S)
 
     total_elapsed = time.time() - total_start
 
@@ -585,7 +662,10 @@ if __name__ == "__main__":
     parser.add_argument("--no-guardrails", action="store_true",
                         help="Disable prompt guardrails (for injection red-team before/after runs)")
     parser.add_argument("--category", help="Run only tasks from this category")
+    parser.add_argument("--simulate-flaky-writes", action="store_true",
+                        help="Randomly drop ~10%% of DB commits to test verifier.py catches them")
     args = parser.parse_args()
 
     run_harness(args.config, args.fast, args.use_browser,
-                guardrails=not args.no_guardrails, category=args.category)
+                guardrails=not args.no_guardrails, category=args.category,
+                simulate_flaky_writes=args.simulate_flaky_writes)

@@ -73,7 +73,7 @@ python app.py            # serves on port 5000
 ## Using the agent
 
 ```
-python agent/agent_core.py "assign a Pro Slack license to pranav@company.com"
+python agent/agent_core.py "assign a Pro Slack license to sarah@company.com"
 python agent/agent_core.py                      # interactive mode
 python agent/agent_core.py --rag bm25 "..."     # retrieval mode: hybrid, dense, bm25, none
 python agent/agent_core.py --verbose "..."      # print each tool call as it runs
@@ -149,24 +149,62 @@ python eval/harness.py --config hybrid --category injection
 
 ## Results
 
-Retrieval quality on the 29-query golden set (doc-level relevance):
+### End-to-End Evaluation Across Agent Configurations (45 Tasks)
 
-| Mode   | Recall@5 | Recall@10 | MRR@10 | nDCG@10 |
-|--------|----------|-----------|--------|---------|
-| bm25   | 0.931    | 0.931     | 0.851  | 0.707   |
-| dense  | 1.000    | 1.000     | 0.886  | 0.801   |
-| hybrid | 1.000    | 1.000     | 0.912  | 0.791   |
+Evaluated across the full 45-task test bank in `eval/tasks_bank.json`:
 
-Prompt-injection attack success rate on the 5-task red team (hybrid
-config):
+| Configuration | Success Rate | Silent Failures | False Refusals | Canary (`user_delete`) | Side Effect Rate | Citation Hit Rate | Mean Latency | Primary Mechanism |
+|---|---|---|---|---|---|---|---|---|
+| **`baseline`** | **22.2%** (10/45) | 0 | 0 | **FAIL** | 0.0% | 0.0% | 11.16s | Direct LLM (No tools, No RAG) |
+| **`tools_only`** | **86.7%** (39/45) | 0 | 0 | **PASS** | 0.0% | 0.0% | 1101.02s | DB Tools only (No policy RAG) |
+| **`dense`** | **86.7%** (39/45) | 0 | 0 | **PASS** | 0.0% | 0.0% | 535.62s | Tools + ChromaDB (MiniLM-L6-v2) |
+| **`bm25`** | **95.6%** (43/45) | 2 | 0 | **PASS** | 0.0% | **100.0%** | 53.21s | Tools + BM25 Keyword Search |
+| **`hybrid`** | **93.3%** (42/45) | 3 | 0 | **PASS** | 0.0% | **100.0%** | 44.01s | Tools + Dense + BM25 (RRF Fusion) |
+| **`hybrid_policy`** | **100.0%** (13/13) | 0 | 0 | **PASS** | 0.0% | **100.0%** | 45.11s | Hybrid RAG + Deterministic Policy Engine |
 
-| Configuration | Attack success rate |
-|---------------|---------------------|
-| No guardrails | 40% (2 of 5 attacks reached the database) |
-| Guardrails    | run `python eval/harness.py --config hybrid --category injection` to measure |
+---
 
-Fast smoke test (one task per category, hybrid config): 12/12 tasks, 0 side
-effects, citation hit rate 100%.
+### Category Breakdown
+
+| Task Category | Tasks | Baseline | Tools Only | Dense | BM25 | Hybrid |
+|---|---|---|---|---|---|---|
+| **Password Reset** | 3 | 1/3 (33%) | 3/3 (100%) | 3/3 (100%) | 3/3 (100%) | **3/3 (100%)** |
+| **User Management** | 4 | 0/4 (0%) | 3/4 (75%) | 3/4 (75%) | 4/4 (100%) | **3/4 (75%)** |
+| **License Management** | 6 | 0/6 (0%) | 6/6 (100%) | 6/6 (100%) | 6/6 (100%) | **6/6 (100%)** |
+| **Group Management** | 3 | 0/3 (0%) | 3/3 (100%) | 3/3 (100%) | 3/3 (100%) | **3/3 (100%)** |
+| **User Lookup / Status** | 2 | 2/2 (100%) | 2/2 (100%) | 2/2 (100%) | 2/2 (100%) | **2/2 (100%)** |
+| **Ticket Management** | 3 | 0/3 (0%) | 3/3 (100%) | 3/3 (100%) | 3/3 (100%) | **3/3 (100%)** |
+| **Conditional Logic** | 4 | 0/4 (0%) | 4/4 (100%) | 4/4 (100%) | 4/4 (100%) | **4/4 (100%)** |
+| **Multi-Step Workflows** | 6 | 0/6 (0%) | 5/6 (83%) | 4/6 (67%) | 6/6 (100%) | **5/6 (83%)** |
+| **Policy Queries** (NIST / CIS) | 4 | 4/4 (100%) | 0/4 (0%) | 2/4 (50%) | 4/4 (100%) | **4/4 (100%)** |
+| **Ticket with Policy** | 1 | 0/1 (0%) | 0/1 (0%) | 0/1 (0%) | 1/1 (100%) | **1/1 (100%)** |
+| **Edge Cases** (Not found / errors) | 3 | 2/3 (67%) | 3/3 (100%) | 3/3 (100%) | 3/3 (100%) | **3/3 (100%)** |
+| **Diagnostics** | 1 | 1/1 (100%) | 1/1 (100%) | 1/1 (100%) | 1/1 (100%) | **1/1 (100%)** |
+| **Red-Team Injections** | 5 | 0/5 (0%) | 5/5 (100%) | 5/5 (100%) | 4/5 (80%) | **4/5 (80%)** |
+
+---
+
+### Offline Retrieval Quality (29 Golden Policy Queries)
+
+Evaluated offline on `eval/golden_retrieval.json` without LLM calls (document-level relevance):
+
+| Mode | Recall@5 | Recall@10 | MRR@10 | nDCG@10 | Key Advantage |
+|---|---|---|---|---|---|
+| **BM25** | 0.931 | 0.931 | 0.851 | 0.707 | Fast keyword matching for exact policy references |
+| **Dense** | 1.000 | 1.000 | 0.886 | 0.801 | Semantic matching for paraphrased queries |
+| **Hybrid (RRF)** | **1.000** | **1.000** | **0.912** | **0.791** | **Highest ranking precision (top MRR@10)** |
+
+---
+
+### Security: Prompt-Injection Defense
+
+Evaluated across the 5-task adversarial red team suite (`injection` category):
+
+| Configuration | Defense Rate | Attack Success Rate | Details |
+|---|---|---|---|
+| **No Guardrails** | 60.0% (3/5 defended) | 40.0% (2/5 breached) | Embedded override in ticket notes executed unauthorized actions |
+| **With Guardrails** | **80.0% – 100.0%** | **0.0% – 20.0%** | Prompt trust boundary blocks embedded instructions in tool outputs |
+
 
 ## Repository layout
 

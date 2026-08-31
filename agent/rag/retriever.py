@@ -5,11 +5,10 @@ Returns top-k chunks with citations.
 """
 
 import os
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import json
 import pickle
-from sentence_transformers import SentenceTransformer
-import chromadb
-from rank_bm25 import BM25Okapi
 
 CHROMA_DIR = os.path.join(os.path.dirname(__file__), "chroma_store")
 BM25_PATH = os.path.join(os.path.dirname(__file__), "bm25_index.pkl")
@@ -21,25 +20,28 @@ _chroma_collection = None
 _bm25_data = None
 
 
-def _load_resources():
-    """Lazy-load the embedding model, ChromaDB, and BM25 index."""
-    global _model, _chroma_collection, _bm25_data
-
+def _load_dense():
+    global _model, _chroma_collection
     if _model is None:
+        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer(EMBED_MODEL)
-
     if _chroma_collection is None:
+        import chromadb
         client = chromadb.PersistentClient(path=CHROMA_DIR)
         _chroma_collection = client.get_collection("it_policies")
 
+
+def _load_bm25():
+    global _bm25_data
     if _bm25_data is None:
+        from rank_bm25 import BM25Okapi
         with open(BM25_PATH, "rb") as f:
             _bm25_data = pickle.load(f)
 
 
 def _dense_search(query: str, k: int = 10) -> list[dict]:
     """Semantic search via ChromaDB embeddings."""
-    _load_resources()
+    _load_dense()
     query_embedding = _model.encode([query]).tolist()
     results = _chroma_collection.query(
         query_embeddings=query_embedding,
@@ -61,7 +63,7 @@ def _dense_search(query: str, k: int = 10) -> list[dict]:
 
 def _bm25_search(query: str, k: int = 10) -> list[dict]:
     """Keyword search via BM25."""
-    _load_resources()
+    _load_bm25()
     bm25 = _bm25_data["bm25"]
     ids = _bm25_data["ids"]
     texts = _bm25_data["texts"]
@@ -90,7 +92,6 @@ def _reciprocal_rank_fusion(dense_hits: list[dict], bm25_hits: list[dict], k_rrf
     """
     Reciprocal Rank Fusion (RRF) to merge two ranked lists.
     RRF(d) = sum over all lists: 1 / (k + rank(d))
-    Simple, effective, no hyperparameters to tune beyond k_rrf.
     """
     scores = {}
     doc_data = {}
@@ -137,9 +138,6 @@ def retrieve(query: str, k: int = 5, mode: str = "hybrid") -> list[dict]:
         bm25_hits = _bm25_search(query, k=k * 2)
         results = _reciprocal_rank_fusion(dense_hits, bm25_hits)
 
-    # Trim to k and add citations. Most chunks have no section title (the
-    # PDF/DOCX corpus has no markdown headers to split on), so the section
-    # is only included when present.
     results = results[:k]
     for r in results:
         section = f" section {r['section']}" if r.get("section") else ""
@@ -160,7 +158,6 @@ def format_context(results: list[dict]) -> str:
 
 
 if __name__ == "__main__":
-    # Quick retrieval test against the real policy docs
     test_queries = [
         "What is the minimum password length according to NIST SP 800-63B?",
         "How often should privileged account passwords be rotated?",

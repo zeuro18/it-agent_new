@@ -3,10 +3,14 @@ import json
 import math
 import os
 import subprocess
+import sys
 import time
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "eval", "results")
-CONFIGS = ["baseline", "tools_only", "dense", "bm25", "hybrid"]
+CONFIGS = [
+    "baseline", "tools_only", "dense", "bm25", "hybrid",
+    "hybrid_db_verify", "hybrid_no_policy", "hybrid_policy"
+]
 
 
 def paired_sign_test(succ_a: dict, succ_b: dict):
@@ -78,26 +82,32 @@ def aggregate_repeats(start_marker: float):
                 print(f"{conf:<12} p = {p:<8} {verdict}")
 
 
-def run_experiments(fast: bool = True, delay_s: float = 15.0, repeat: int = 1):
+def run_experiments(fast: bool = True, delay_s: float = 15.0, repeat: int = 1,
+                    selected_configs: list = None, simulate_flaky_writes: bool = False):
+    configs_to_run = selected_configs or CONFIGS
     print("Starting IT Agent Evaluation Suite...")
     print(f"Mode: {'fast smoke-test' if fast else 'full task bank'} | "
-          f"Repeats per config: {repeat} | Inter-run delay: {delay_s}s")
+          f"Configs: {', '.join(configs_to_run)} | "
+          f"Repeats per config: {repeat} | Inter-run delay: {delay_s}s"
+          + (f" | FlakySim: ON" if simulate_flaky_writes else ""))
     print("=" * 50)
 
     start_marker = time.time()
-    total_runs = len(CONFIGS) * repeat
+    total_runs = len(configs_to_run) * repeat
 
     run_index = 0
     for rep in range(1, repeat + 1):
-        for conf in CONFIGS:
+        for conf in configs_to_run:
             run_index += 1
             label = f"[run {rep}/{repeat}] " if repeat > 1 else ""
             print(f"\n{label}Running config: {conf}")
             start_time = time.time()
 
-            cmd = ["python", "eval/harness.py", "--config", conf]
+            cmd = [sys.executable, "eval/harness.py", "--config", conf]
             if fast:
                 cmd.append("--fast")
+            if simulate_flaky_writes:
+                cmd.append("--simulate-flaky-writes")
             subprocess.run(cmd, check=True)
 
             elapsed = time.time() - start_time
@@ -116,17 +126,27 @@ def run_experiments(fast: bool = True, delay_s: float = 15.0, repeat: int = 1):
         aggregate_repeats(start_marker)
     else:
         print("Generating comparison metrics...")
-        subprocess.run(["python", "eval/metrics.py", "--results", "eval/results/"])
+        subprocess.run([sys.executable, "eval/metrics.py", "--results", "eval/results/"])
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the full IT Agent experiment suite")
     parser.add_argument("--full", action="store_true",
                         help="Run the full task bank instead of the --fast smoke-test subset")
+    parser.add_argument("--config", choices=CONFIGS, help="Run only a specific config")
+    parser.add_argument("--simulate-flaky-writes", action="store_true",
+                        help="Randomly drop ~10%% of DB commits to test verifier.py catches them")
     parser.add_argument("--delay", type=float, default=15.0,
                         help="Seconds to wait between runs to avoid Groq rate limits (default: 15)")
     parser.add_argument("--repeat", type=int, default=1,
                         help="Runs per config; with N>1 prints mean/std and paired sign tests (default: 1)")
     args = parser.parse_args()
 
-    run_experiments(fast=not args.full, delay_s=args.delay, repeat=max(1, args.repeat))
+    selected = [args.config] if args.config else None
+    run_experiments(
+        fast=not args.full,
+        delay_s=args.delay,
+        repeat=max(1, args.repeat),
+        selected_configs=selected,
+        simulate_flaky_writes=args.simulate_flaky_writes,
+    )

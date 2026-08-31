@@ -145,7 +145,6 @@ def ingest():
 
     print("[ingest] Storing in ChromaDB...")
     client = chromadb.PersistentClient(path=CHROMA_DIR)
-    # Delete existing collection if it exists to avoid duplicates
     try:
         client.delete_collection("it_policies")
     except Exception:

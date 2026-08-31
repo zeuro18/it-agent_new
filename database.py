@@ -62,11 +62,11 @@ def seed_db():
     tickets 1-3).
     """
     users = [
-        User(name="Manas Mehta", email="manas@company.com", role="employee", status="active", department="Engineering"),
-        User(name="Pranav Sharma", email="pranav@company.com", role="manager", status="active", department="HR"),
-        User(name="Tuhin Roy", email="tuhin@company.com", role="employee", status="inactive", department="Sales"),
-        User(name="Anurag Singh", email="anurag@company.com", role="employee", status="inactive", department="IT"),
-        User(name="Nandini Menon", email="Nandini@company.com", role="employee", status="active", department="Legal")
+        User(name="John Doe", email="john@company.com", role="employee", status="active", department="Engineering"),
+        User(name="Sarah Connor", email="sarah@company.com", role="manager", status="active", department="HR"),
+        User(name="Marcus Vance", email="marcus@company.com", role="employee", status="inactive", department="Sales"),
+        User(name="Daniel Craig", email="daniel@company.com", role="employee", status="inactive", department="IT"),
+        User(name="Emily Watson", email="Emily@company.com", role="employee", status="active", department="Legal")
     ]
     db.session.add_all(users)
     db.session.commit()
